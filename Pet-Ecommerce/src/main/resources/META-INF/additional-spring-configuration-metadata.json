@@ -1,0 +1,44 @@
+{
+  "properties": [
+    {
+      "name": "app.jwt.secret",
+      "type": "java.lang.String",
+      "description": "HMAC-SHA256 secret containing at least 32 bytes."
+    },
+    {
+      "name": "app.jwt.access-token-expiration-seconds",
+      "type": "java.lang.Long",
+      "defaultValue": 900,
+      "description": "Access-token lifetime in seconds."
+    },
+    {
+      "name": "app.jwt.refresh-token-expiration-days",
+      "type": "java.lang.Long",
+      "defaultValue": 30,
+      "description": "Refresh-token and refresh-cookie lifetime in days."
+    },
+    {
+      "name": "app.jwt.refresh-cookie-name",
+      "type": "java.lang.String",
+      "defaultValue": "refreshToken",
+      "description": "Name of the HttpOnly refresh-token cookie."
+    },
+    {
+      "name": "app.jwt.refresh-cookie-secure",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Whether the refresh-token cookie is restricted to HTTPS."
+    },
+    {
+      "name": "app.jwt.refresh-cookie-same-site",
+      "type": "java.lang.String",
+      "defaultValue": "Lax",
+      "description": "SameSite policy for the refresh-token cookie."
+    },
+    {
+      "name": "app.cors.allowed-origins",
+      "type": "java.lang.String",
+      "description": "Comma-delimited list of trusted frontend origins."
+    }
+  ]
+}

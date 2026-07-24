@@ -1,0 +1,36 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: pet_ecommerce
+      MYSQL_USER: petshop
+      MYSQL_PASSWORD: ${COMPOSE_DB_PASSWORD:-petshop_dev_password}
+      MYSQL_ROOT_PASSWORD: ${COMPOSE_DB_ROOT_PASSWORD:-root_dev_password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - pet_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${COMPOSE_DB_ROOT_PASSWORD:-root_dev_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/pet_ecommerce?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
+      DB_USERNAME: petshop
+      DB_PASSWORD: ${COMPOSE_DB_PASSWORD:-petshop_dev_password}
+      SERVER_PORT: 2424
+    ports:
+      - "2424:2424"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pet_mysql_data:

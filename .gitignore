@@ -1,0 +1,21 @@
+# React
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.*
+
+# Spring Boot
+backend/target/
+backend/.env
+backend/.env.*
+backend/src/main/resources/application-local.properties
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Windows/macOS
+Thumbs.db
+.DS_Store

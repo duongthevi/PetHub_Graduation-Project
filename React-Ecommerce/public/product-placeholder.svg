@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640">
+  <rect width="640" height="640" fill="#f5f1e8"/>
+  <circle cx="320" cy="300" r="118" fill="#dfe9d9"/>
+  <g fill="#2f6950">
+    <ellipse cx="240" cy="190" rx="42" ry="55" transform="rotate(-25 240 190)"/>
+    <ellipse cx="400" cy="190" rx="42" ry="55" transform="rotate(25 400 190)"/>
+    <ellipse cx="198" cy="285" rx="44" ry="58" transform="rotate(-40 198 285)"/>
+    <ellipse cx="442" cy="285" rx="44" ry="58" transform="rotate(40 442 285)"/>
+    <path d="M320 245c-72 0-128 68-128 137 0 65 51 94 128 94s128-29 128-94c0-69-56-137-128-137z"/>
+  </g>
+  <text x="320" y="560" text-anchor="middle" font-family="Arial,sans-serif" font-size="34" font-weight="700" fill="#315341">PetHub</text>
+</svg>
