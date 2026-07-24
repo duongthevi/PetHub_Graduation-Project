@@ -299,7 +299,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-detail__meta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: .72rem; }
 .product-detail__meta > span { padding-right: 12px; border-right: 1px solid var(--line); }
 .product-detail__price { margin: 27px 0 18px; color: var(--green-700); font-size: 2rem; font-weight: 800; }
-.product-detail__description { color: #5e6f66; line-height: 1.8; }
+.product-detail__description {
+  color: #5e6f66;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
 .product-facts { margin: 24px 0; display: grid; grid-template-columns: 130px 1fr; gap: 10px; font-size: .82rem; }
 .product-facts dt { color: var(--muted); }
 .product-facts dd { margin: 0; font-weight: 800; }
