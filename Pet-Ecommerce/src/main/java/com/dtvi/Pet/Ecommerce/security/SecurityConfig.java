@@ -69,6 +69,10 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
 
+                        // Disable the deprecated order-item API. It could remove
+                        // items (and even an order) without reconciling VNPay.
+                        .requestMatchers("/legacy/**").denyAll()
+
                         // Only administrators may manage products, categories and statistics.
                         .requestMatchers("/admin/**", "/statistics/**")
                         .hasAuthority("ADMIN")

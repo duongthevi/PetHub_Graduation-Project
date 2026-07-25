@@ -35,7 +35,8 @@ public class OrderService {
             EnumSet.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PENDING);
 
     private static final Map<OrderStatus, Set<OrderStatus>> ADMIN_TRANSITIONS = Map.of(
-            OrderStatus.PENDING_PAYMENT, EnumSet.of(OrderStatus.PENDING, OrderStatus.CANCELLED),
+            // A VNPay order can only leave PENDING_PAYMENT after a verified callback.
+            OrderStatus.PENDING_PAYMENT, EnumSet.of(OrderStatus.CANCELLED),
             OrderStatus.PENDING, EnumSet.of(OrderStatus.CONFIRMED, OrderStatus.CANCELLED),
             OrderStatus.CONFIRMED, EnumSet.of(OrderStatus.PROCESSING, OrderStatus.CANCELLED),
             OrderStatus.PROCESSING, EnumSet.of(OrderStatus.SHIPPING, OrderStatus.CANCELLED),
@@ -171,10 +172,6 @@ public class OrderService {
             cancelOrder(order, adminMessage == null ? "Cancelled by administrator" : adminMessage);
             return OrderResponse.from(order);
         }
-        if (current == OrderStatus.PENDING_PAYMENT && newStatus == OrderStatus.PENDING
-                && order.getPaymentStatus() != PaymentStatus.PAID) {
-            throw BusinessException.conflict("PAYMENT_REQUIRED", "VNPay order has not been paid");
-        }
 
         order.setStatus(newStatus);
         order.setAdminMessage(adminMessage);
@@ -206,22 +203,36 @@ public class OrderService {
 
     public void markVnpayPaid(Order order) {
         order = getOrderForUpdate(order.getId());
+        if (order.getPaymentMethod() != PaymentMethod.VNPAY) {
+            throw BusinessException.conflict(
+                    "PAYMENT_METHOD_INVALID",
+                    "Only a VNPay order can be confirmed by the VNPay callback"
+            );
+        }
+
         if (order.getPaymentStatus() == PaymentStatus.PAID) {
+            // Reconcile orders created by an older version where a paid VNPay
+            // order was incorrectly left at PENDING/PENDING_PAYMENT.
+            if (order.getStatus() == OrderStatus.PENDING_PAYMENT
+                    || order.getStatus() == OrderStatus.PENDING) {
+                confirmPaidVnpayOrder(order);
+            }
             return;
         }
-        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT
+                || order.getPaymentStatus() != PaymentStatus.PENDING) {
             throw BusinessException.conflict("ORDER_NOT_PAYABLE", "Order is not awaiting payment");
         }
+
         order.setPaymentStatus(PaymentStatus.PAID);
         order.setPaidAt(LocalDateTime.now());
-        order.setStatus(OrderStatus.PENDING);
-        mirrorItemStatus(order, OrderStatus.PENDING);
-        orderRepo.save(order);
+        confirmPaidVnpayOrder(order);
     }
 
     public void cancelFailedOnlinePayment(Order order, String reason) {
         order = getOrderForUpdate(order.getId());
         if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            order.setPaymentStatus(PaymentStatus.FAILED);
             cancelOrder(order, reason);
         }
     }
@@ -234,7 +245,8 @@ public class OrderService {
                 )
                 .forEach(order -> {
                     Order lockedOrder = getOrderForUpdate(order.getId());
-                    if (lockedOrder.getStatus() == OrderStatus.PENDING_PAYMENT) {
+                    if (lockedOrder.getStatus() == OrderStatus.PENDING_PAYMENT
+                            && lockedOrder.getPaymentStatus() == PaymentStatus.PENDING) {
                         cancelOrder(lockedOrder, "Online payment expired");
                     }
                 });
@@ -312,14 +324,24 @@ public class OrderService {
     }
 
     private void cancelOrder(Order order, String reason) {
+        if (order.getPaymentStatus() == PaymentStatus.PAID) {
+            throw BusinessException.conflict(
+                    "PAID_ORDER_REFUND_REQUIRED",
+                    "Đơn hàng đã thanh toán không thể hủy trực tiếp. Phải hoàn tiền thành công trước khi hủy."
+            );
+        }
         if (order.getStatus() == OrderStatus.CANCELLED) {
             return;
         }
+
         releaseInventory(order);
         couponService.releaseUsage(order);
         order.setStatus(OrderStatus.CANCELLED);
-        order.setPaymentStatus(PaymentStatus.CANCELLED);
+        if (order.getPaymentStatus() == PaymentStatus.PENDING) {
+            order.setPaymentStatus(PaymentStatus.CANCELLED);
+        }
         order.setCancelledAt(LocalDateTime.now());
+        order.setPaymentExpiresAt(null);
         order.setAdminMessage(reason);
         mirrorItemStatus(order, OrderStatus.CANCELLED);
         paymentRepo.findByOrderIdOrderByCreatedAtDesc(order.getId()).forEach(payment -> {
@@ -331,6 +353,14 @@ public class OrderService {
     }
 
     private void markDelivered(Order order) {
+        if (order.getPaymentMethod() == PaymentMethod.VNPAY
+                && order.getPaymentStatus() != PaymentStatus.PAID) {
+            throw BusinessException.conflict(
+                    "PAYMENT_REQUIRED",
+                    "VNPay order must be paid before it can be delivered"
+            );
+        }
+
         for (OrderItem item : order.getOrderItemList()) {
             Product product = item.getProduct();
             product.setSoldCount(product.getSoldCount() + item.getQuantity());
@@ -349,12 +379,33 @@ public class OrderService {
     }
 
     private void processReturn(Order order) {
+        if (order.getPaymentMethod() == PaymentMethod.VNPAY
+                && order.getPaymentStatus() == PaymentStatus.PAID) {
+            throw BusinessException.conflict(
+                    "VNPAY_REFUND_REQUIRED",
+                    "Phải hoàn tiền qua VNPay và xác nhận giao dịch hoàn tiền trước khi đánh dấu đơn đã hoàn."
+            );
+        }
+
         for (OrderItem item : order.getOrderItemList()) {
             Product product = item.getProduct();
             product.setQuantity(product.getQuantity() + item.getQuantity());
             product.setSoldCount(Math.max(0, product.getSoldCount() - item.getQuantity()));
         }
         order.setPaymentStatus(PaymentStatus.REFUNDED);
+        paymentRepo.findByOrderIdOrderByCreatedAtDesc(order.getId()).stream()
+                .filter(payment -> payment.getStatus() == PaymentStatus.PAID)
+                .forEach(payment -> payment.setStatus(PaymentStatus.REFUNDED));
+    }
+
+    private void confirmPaidVnpayOrder(Order order) {
+        if (order.getPaidAt() == null) {
+            order.setPaidAt(LocalDateTime.now());
+        }
+        order.setStatus(OrderStatus.CONFIRMED);
+        order.setPaymentExpiresAt(null);
+        mirrorItemStatus(order, OrderStatus.CONFIRMED);
+        orderRepo.save(order);
     }
 
     private void releaseInventory(Order order) {

@@ -8,8 +8,6 @@ import EmptyState from "../../components/common/EmptyState";
 import StatusBadge from "../../components/common/StatusBadge";
 import { formatCurrency, formatDateTime, getErrorMessage } from "../../utils/format";
 
-const cancellable = ["PENDING_PAYMENT", "PENDING", "CONFIRMED"];
-
 export default function OrderDetailPage() {
   const { orderId } = useParams();
   const [order, setOrder] = useState(null);
@@ -49,6 +47,14 @@ export default function OrderDetailPage() {
   if (loading) return <Loader fullPage />;
   if (!order) return <div className="container section"><EmptyState title="Không tìm thấy đơn hàng" action={<Link to="/orders" className="button button--primary">Danh sách đơn hàng</Link>} /></div>;
 
+  const canPay =
+    order.paymentMethod === "VNPAY"
+    && order.status === "PENDING_PAYMENT"
+    && order.paymentStatus === "PENDING";
+  const canCancel =
+    ["PENDING_PAYMENT", "PENDING"].includes(order.status)
+    && order.paymentStatus !== "PAID";
+
   return (
     <div className="container order-detail-page">
       <Link to="/orders" className="back-link"><ArrowLeft /> Đơn hàng của tôi</Link>
@@ -64,6 +70,12 @@ export default function OrderDetailPage() {
         })}
       </section>
       {order.adminMessage && <div className="notice"><strong>Cập nhật từ cửa hàng:</strong> {order.adminMessage}</div>}
+      {order.paymentMethod === "VNPAY" && order.paymentStatus === "PAID" && (
+        <div className="notice">
+          <strong>VNPay đã xác nhận thanh toán.</strong>{" "}
+          Đơn đã thanh toán không thể hủy trực tiếp; nếu cần hủy, cửa hàng phải xử lý hoàn tiền.
+        </div>
+      )}
       <div className="order-detail__grid">
         <section className="card order-products">
           <h2>Sản phẩm</h2>
@@ -76,8 +88,8 @@ export default function OrderDetailPage() {
       </div>
       <div className="card order-totals"><dl><dt>Tạm tính</dt><dd>{formatCurrency(order.subtotal)}</dd><dt>Phí giao hàng</dt><dd>{formatCurrency(order.shippingFee)}</dd><dt>Giảm giá {order.couponCode && `(${order.couponCode})`}</dt><dd>−{formatCurrency(order.discountAmount)}</dd><dt>Tổng thanh toán</dt><dd>{formatCurrency(order.total)}</dd></dl></div>
       <div className="order-actions">
-        {order.paymentMethod === "VNPAY" && order.status === "PENDING_PAYMENT" && <button className="button button--primary" onClick={payAgain} disabled={processing}><CreditCard /> Thanh toán ngay</button>}
-        {cancellable.includes(order.status) && <button className="button button--outline button--danger" onClick={cancelOrder} disabled={processing}><RotateCcw /> Hủy đơn hàng</button>}
+        {canPay && <button className="button button--primary" onClick={payAgain} disabled={processing}><CreditCard /> Thanh toán ngay</button>}
+        {canCancel && <button className="button button--outline button--danger" onClick={cancelOrder} disabled={processing}><RotateCcw /> Hủy đơn hàng</button>}
         {order.status === "DELIVERED" && <Link className="button button--primary" to={`/products/${order.items[0]?.productId}#reviews`}><PackageCheck /> Đánh giá sản phẩm</Link>}
       </div>
     </div>

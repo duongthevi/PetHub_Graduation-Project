@@ -100,6 +100,9 @@ public class VnPayService {
             return new VnPayIpnResponse("04", "Invalid amount");
         }
         if (payment.getStatus() != PaymentStatus.PENDING) {
+            if (payment.getStatus() == PaymentStatus.PAID) {
+                orderService.markVnpayPaid(payment.getOrder());
+            }
             return new VnPayIpnResponse("02", "Order already confirmed");
         }
 
@@ -177,7 +180,6 @@ public class VnPayService {
             if (gatewaySuccessful) {
                 payment.setStatus(PaymentStatus.PAID);
                 payment.setPaidAt(LocalDateTime.now());
-                orderService.markVnpayPaid(payment.getOrder());
             } else {
                 payment.setStatus(PaymentStatus.FAILED);
                 orderService.cancelFailedOnlinePayment(
@@ -186,6 +188,10 @@ public class VnPayService {
                 );
             }
             paymentRepo.save(payment);
+        }
+
+        if (gatewaySuccessful && payment.getStatus() == PaymentStatus.PAID) {
+            orderService.markVnpayPaid(payment.getOrder());
         }
 
         boolean successful = gatewaySuccessful && payment.getStatus() == PaymentStatus.PAID;

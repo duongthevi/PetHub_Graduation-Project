@@ -9,6 +9,7 @@ public record ChatResponse(
         String answer,
         List<RagCitation> citations,
         List<Long> recommendedProductIds,
-        List<ProductSummary> recommendedProducts
+        List<ProductSummary> recommendedProducts,
+        ChatAction action
 ) {
 }

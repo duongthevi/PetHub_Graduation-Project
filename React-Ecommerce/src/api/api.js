@@ -73,7 +73,10 @@ export const reviewApi = {
 };
 
 export const ragApi = {
-  chat: (body) => http.post("/rag/chat", body).then(unwrap),
+  chat: (body) =>
+    http
+      .post("/rag/chat", body, { timeout: 120000 })
+      .then(unwrap),
 };
 
 export const adminApi = {
