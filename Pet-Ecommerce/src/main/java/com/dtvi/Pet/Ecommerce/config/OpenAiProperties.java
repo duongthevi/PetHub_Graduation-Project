@@ -10,10 +10,10 @@ import org.springframework.stereotype.Component;
 @Getter
 @Setter
 public class OpenAiProperties {
-    private String baseUrl = "https://api.openai.com/v1";
-    private String apiKey;
-    private String chatModel = "gpt-4.1-mini";
-    private String embeddingModel = "text-embedding-3-small";
+    private String baseUrl = "http://localhost:11434/v1";
+    private String apiKey = "ollama";
+    private String chatModel = "qwen2.5:3b-instruct";
+    private String embeddingModel = "nomic-embed-text";
     private int topK = 5;
     private double minimumScore = 0.2;
     private int chunkSize = 900;

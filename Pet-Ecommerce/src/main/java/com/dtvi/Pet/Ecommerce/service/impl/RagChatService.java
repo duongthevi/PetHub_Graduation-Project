@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.dtvi.Pet.Ecommerce.dto.commerce.ProductSummary;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -23,6 +24,14 @@ import java.util.stream.Collectors;
 public class RagChatService {
 
     private static final String SYSTEM_PROMPT = """
+            Quy ước loại thú cưng trong dữ liệu:
+                - CAT nghĩa là sản phẩm dành cho mèo.
+                - DOG nghĩa là sản phẩm dành cho chó.
+                - ALL hoặc BOTH nghĩa là dùng được cho cả chó và mèo.
+
+            Khi khách muốn mua hoặc đặt hàng, hãy hướng dẫn khách chọn sản phẩm bên dưới và sử dụng nút "Thêm vào giỏ" hoặc "Thêm và thanh toán".
+            Không được tự khẳng định đơn hàng đã được tạo hoặc thanh toán thành công.
+
             Bạn là trợ lý tư vấn của cửa hàng thú cưng. Hãy trả lời bằng tiếng Việt, rõ ràng và thân thiện.
             Chỉ khẳng định thông tin sản phẩm, giá và chính sách khi chúng xuất hiện trong NGỮ CẢNH.
             Nếu ngữ cảnh không đủ, hãy nói rõ chưa đủ dữ liệu thay vì suy đoán.
@@ -46,7 +55,11 @@ public class RagChatService {
 
         List<Double> questionEmbedding = aiClient.embed(List.of(request.question())).getFirst();
         List<ScoredChunk> chunks = retrieve(questionEmbedding);
-        List<Product> products = rankProducts(request.question());
+        List<Product> products = rankProducts(request.question())
+                .stream()
+                .filter(Product::isActive)
+                .filter(product -> product.getQuantity() > 0)
+                .toList();
 
         String context = buildContext(chunks, products);
         List<OpenAiCompatibleClient.ChatTurn> turns = new ArrayList<>();
@@ -74,7 +87,8 @@ public class RagChatService {
                 conversation.getId(),
                 answer,
                 citations,
-                products.stream().map(Product::getId).toList()
+                products.stream().map(Product::getId).toList(),
+                products.stream().map(ProductSummary::from).toList()
         );
     }
 
@@ -120,14 +134,60 @@ public class RagChatService {
     }
 
     private List<Product> rankProducts(String question) {
-        Set<String> terms = Arrays.stream(question.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
-                .filter(term -> term.length() >= 3)
-                .collect(Collectors.toSet());
-        return productRepo.findTop20ByActiveTrueOrderBySoldCountDesc().stream()
-                .sorted(Comparator
-                        .comparingInt((Product product) -> productScore(product, terms))
-                        .reversed()
-                        .thenComparing(Comparator.comparingLong(Product::getSoldCount).reversed()))
+        Set<String> terms = Arrays.stream(
+                        question.toLowerCase(Locale.ROOT)
+                                .split("[^\\p{L}\\p{N}]+")
+                )
+                .filter(term -> !term.isBlank())
+                .collect(Collectors.toCollection(HashSet::new));
+
+        boolean catRequested = containsAny(
+                terms,
+                "mèo",
+                "meo",
+                "cat",
+                "feline"
+        );
+
+        boolean dogRequested = containsAny(
+                terms,
+                "chó",
+                "dog",
+                "canine"
+        );
+
+        // Mở rộng từ đồng nghĩa để "mèo" khớp petType CAT.
+        if (catRequested) {
+            terms.addAll(Set.of("mèo", "meo", "cat", "feline"));
+        }
+
+        if (dogRequested) {
+            terms.addAll(Set.of("chó", "dog", "canine"));
+        }
+
+        return productRepo.findTop20ByActiveTrueOrderBySoldCountDesc()
+                .stream()
+                .filter(Product::isActive)
+                .filter(product -> product.getQuantity() > 0)
+                .filter(product ->
+                        supportsRequestedPet(
+                                product,
+                                catRequested,
+                                dogRequested
+                        )
+                )
+                .sorted(
+                        Comparator
+                                .comparingInt(
+                                        (Product product) ->
+                                                productScore(product, terms)
+                                )
+                                .reversed()
+                                .thenComparing(
+                                        Comparator.comparingLong(Product::getSoldCount)
+                                                .reversed()
+                                )
+                )
                 .limit(5)
                 .toList();
     }
@@ -141,6 +201,46 @@ public class RagChatService {
                 product.getCategory() == null ? "" : safe(product.getCategory().getName())
         ).toLowerCase(Locale.ROOT);
         return (int) terms.stream().filter(searchable::contains).count();
+    }
+
+    private boolean containsAny(Set<String> terms, String... expectedTerms) {
+        return Arrays.stream(expectedTerms).anyMatch(terms::contains);
+    }
+
+    private boolean supportsRequestedPet(
+            Product product,
+            boolean catRequested,
+            boolean dogRequested
+    ) {
+        if (!catRequested && !dogRequested) {
+            return true;
+        }
+
+        // Nếu người dùng hỏi đồng thời chó và mèo thì không cần lọc.
+        if (catRequested && dogRequested) {
+            return true;
+        }
+
+        String petType = safe(product.getPetType())
+                .trim()
+                .toUpperCase(Locale.ROOT);
+
+        String searchable = String.join(
+                " ",
+                safe(product.getName()),
+                safe(product.getDescription()),
+                safe(product.getPetType())
+        ).toLowerCase(Locale.ROOT);
+
+        if (catRequested) {
+            return Set.of("CAT", "ALL", "BOTH").contains(petType)
+                    || searchable.contains("mèo")
+                    || searchable.contains("cat");
+        }
+
+        return Set.of("DOG", "ALL", "BOTH").contains(petType)
+                || searchable.contains("chó")
+                || searchable.contains("dog");
     }
 
     private String buildContext(List<ScoredChunk> chunks, List<Product> products) {
@@ -164,12 +264,27 @@ public class RagChatService {
                         .append("; tên=").append(product.getName())
                         .append("; giá=").append(product.getPrice()).append(" VND")
                         .append("; tồn kho=").append(product.getQuantity())
-                        .append("; loại thú cưng=").append(safe(product.getPetType()))
+                        .append("; loại thú cưng=")
+                        .append(displayPetType(product.getPetType()))
                         .append("; mô tả=").append(safe(product.getDescription()))
                         .append("\n");
             }
         }
         return context.toString();
+    }
+
+    private String displayPetType(String petType) {
+        if (petType == null || petType.isBlank()) {
+            return "chưa xác định";
+        }
+
+        return switch (petType.trim().toUpperCase(Locale.ROOT)) {
+            case "CAT" -> "CAT (mèo)";
+            case "DOG" -> "DOG (chó)";
+            case "ALL", "BOTH" -> petType.toUpperCase(Locale.ROOT)
+                    + " (chó và mèo)";
+            default -> petType;
+        };
     }
 
     private List<Double> parseEmbedding(KnowledgeChunk chunk) {
