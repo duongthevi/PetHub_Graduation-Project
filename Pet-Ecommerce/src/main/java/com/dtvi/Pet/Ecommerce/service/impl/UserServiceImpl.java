@@ -10,6 +10,9 @@ import com.dtvi.Pet.Ecommerce.repository.UserRepo;
 import com.dtvi.Pet.Ecommerce.service.interf.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -99,5 +102,20 @@ public class UserServiceImpl implements UserService {
                 .status(200)
                 .user(userDto)
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<UserDto> searchUsers(String query, int page, int size) {
+        String normalized = query == null ? "" : query.trim();
+
+        PageRequest pageable = PageRequest.of(
+                Math.max(0, page),
+                Math.max(1, Math.min(size, 100)),
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        return userRepo.search(normalized, pageable)
+                .map(entityDtoMapper::mapUserToDtoBasic);
     }
 }

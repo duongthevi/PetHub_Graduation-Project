@@ -48,4 +48,8 @@ public class CartItem {
     void preUpdate() {
         updatedAt = LocalDateTime.now();
     }
+
+    @Version
+    @Column(nullable = false)
+    private long version;
 }

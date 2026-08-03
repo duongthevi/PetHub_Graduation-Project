@@ -1,5 +1,5 @@
 import { Eye, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { adminApi } from "../../api/api";
 import AdminPageHeader from "../../components/admin/AdminPageHeader";
@@ -36,7 +36,6 @@ const adminTransitions = {
   CONFIRMED: ["PROCESSING", "CANCELLED"],
   PROCESSING: ["SHIPPING", "CANCELLED"],
   SHIPPING: ["DELIVERED"],
-  DELIVERED: ["RETURNED"],
 };
 
 function getAllowedStatuses(order) {
@@ -75,32 +74,40 @@ export default function AdminOrdersPage() {
   });
   const [saving, setSaving] = useState(false);
 
-  const load = (page = 0) => {
-    setLoading(true);
-    adminApi
-      .orders({ page, size: 10 })
-      .then((response) => setData(response.data))
-      .catch((error) => toast.error(getErrorMessage(error)))
-      .finally(() => setLoading(false));
-  };
+  const load = useCallback(
+    (page = 0) => {
+      setLoading(true);
+
+      adminApi
+        .orders({
+          page,
+          size: 10,
+          q: searchTerm.trim() || undefined,
+          status: statusFilter || undefined,
+        })
+        .then((response) => {
+          setData(response.data);
+        })
+        .catch((error) => {
+          toast.error(getErrorMessage(error));
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    },
+    [searchTerm, statusFilter]
+  );
 
   useEffect(() => {
-    load();
-  }, []);
+    // Tránh gọi API liên tục trong lúc người dùng đang nhập
+    const timeoutId = window.setTimeout(() => {
+      load(0);
+    }, 350);
 
-  const visible = useMemo(() => {
-    const keyword = searchTerm.trim().toLocaleLowerCase("vi");
-    return data.content.filter((order) => {
-      const matchesStatus = !statusFilter || order.status === statusFilter;
-      const matchesSearch =
-        !keyword
-        || order.orderCode?.toLocaleLowerCase("vi").includes(keyword)
-        || order.customerName?.toLocaleLowerCase("vi").includes(keyword)
-        || order.recipientName?.toLocaleLowerCase("vi").includes(keyword)
-        || order.recipientPhone?.includes(keyword);
-      return matchesStatus && matchesSearch;
-    });
-  }, [data.content, searchTerm, statusFilter]);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [load]);
 
   const open = (order) => {
     setSelected(order);
@@ -193,7 +200,7 @@ export default function AdminOrdersPage() {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((order) => (
+                {data.content.map((order) => (
                   <tr key={order.id}>
                     <td><strong>#{order.orderCode}</strong></td>
                     <td>{order.customerName || `User #${order.userId}`}</td>

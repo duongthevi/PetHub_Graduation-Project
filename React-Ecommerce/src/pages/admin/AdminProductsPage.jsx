@@ -2,7 +2,7 @@ import { Edit3, Eye, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { adminApi, catalogApi } from "../../api/api";
+import { adminApi} from "../../api/api";
 import AdminPageHeader from "../../components/admin/AdminPageHeader";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
@@ -15,13 +15,13 @@ export default function AdminProductsPage() {
 
   const load = (page = 0, q = query) => {
     setLoading(true);
-    catalogApi.search({ q: q || undefined, page, size: 10, sortBy: "id", direction: "desc" })
+    adminApi.products({ q: q || undefined, page, size: 10, sortBy: "createdAt", direction: "desc" })
       .then((response) => setData(response.data))
       .finally(() => setLoading(false));
   };
   useEffect(() => {
     setLoading(true);
-    catalogApi.search({ page: 0, size: 10, sortBy: "id", direction: "desc" })
+    adminApi.products({ page: 0, size: 10, sortBy: "createdAt", direction: "desc" })
       .then((response) => setData(response.data))
       .finally(() => setLoading(false));
   }, []);

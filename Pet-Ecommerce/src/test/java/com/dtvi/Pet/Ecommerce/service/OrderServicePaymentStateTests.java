@@ -10,7 +10,9 @@ import com.dtvi.Pet.Ecommerce.repository.CartRepo;
 import com.dtvi.Pet.Ecommerce.repository.OrderRepo;
 import com.dtvi.Pet.Ecommerce.repository.PaymentRepo;
 import com.dtvi.Pet.Ecommerce.repository.ProductRepo;
+import com.dtvi.Pet.Ecommerce.repository.UserRepo;
 import com.dtvi.Pet.Ecommerce.service.impl.CouponService;
+import com.dtvi.Pet.Ecommerce.service.impl.InventoryTransactionService;
 import com.dtvi.Pet.Ecommerce.service.impl.OrderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,12 @@ class OrderServicePaymentStateTests {
     @Mock
     private CouponService couponService;
 
+    @Mock
+    private UserRepo userRepo;
+
+    @Mock
+    private InventoryTransactionService inventoryTransactionService;
+
     private OrderService service;
 
     @BeforeEach
@@ -58,7 +66,9 @@ class OrderServicePaymentStateTests {
                 productRepo,
                 orderRepo,
                 paymentRepo,
-                couponService
+                couponService,
+                userRepo,
+                inventoryTransactionService
         );
     }
 
@@ -102,20 +112,19 @@ class OrderServicePaymentStateTests {
     }
 
     @Test
-    void failedVnpayPaymentKeepsFailedPaymentStatusWhenOrderIsCancelled() {
+    void failedVnpayPaymentAttemptOnlyRecordsReasonWithoutCancellingOrder() {
         Order order = newOrder(
                 OrderStatus.PENDING_PAYMENT,
                 PaymentStatus.PENDING,
                 PaymentMethod.VNPAY
         );
         when(orderRepo.findForUpdateById(order.getId())).thenReturn(Optional.of(order));
-        when(paymentRepo.findByOrderIdOrderByCreatedAtDesc(order.getId()))
-                .thenReturn(List.of());
 
-        service.cancelFailedOnlinePayment(order, "VNPay rejected the payment");
+        service.recordOnlinePaymentAttemptFailed(order, "VNPay rejected the payment");
 
-        assertEquals(OrderStatus.CANCELLED, order.getStatus());
-        assertEquals(PaymentStatus.FAILED, order.getPaymentStatus());
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        assertEquals(PaymentStatus.PENDING, order.getPaymentStatus());
+        assertEquals("VNPay rejected the payment", order.getAdminMessage());
         verify(orderRepo).save(order);
     }
 

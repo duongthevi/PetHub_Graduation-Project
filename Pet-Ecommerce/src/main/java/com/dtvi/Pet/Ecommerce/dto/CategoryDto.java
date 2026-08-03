@@ -21,4 +21,6 @@ public class CategoryDto {
     private String name;
     
     private List<ProductDto> productList;
+
+    private Long productCount;
 }

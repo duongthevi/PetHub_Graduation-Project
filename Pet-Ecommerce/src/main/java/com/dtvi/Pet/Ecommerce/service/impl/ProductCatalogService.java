@@ -2,6 +2,7 @@ package com.dtvi.Pet.Ecommerce.service.impl;
 
 import com.dtvi.Pet.Ecommerce.dto.ProductDto;
 import com.dtvi.Pet.Ecommerce.entity.Product;
+import com.dtvi.Pet.Ecommerce.exception.NotFoundException;
 import com.dtvi.Pet.Ecommerce.mapper.EntityDtoMapper;
 import com.dtvi.Pet.Ecommerce.repository.ProductRepo;
 import jakarta.persistence.criteria.Predicate;
@@ -22,14 +23,22 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class ProductCatalogService {
+public class ProductCatalogService implements com.dtvi.Pet.Ecommerce.service.interf.ProductCatalogService {
 
     private static final Set<String> SORT_FIELDS =
-            Set.of("createdAt", "name", "price", "soldCount", "averageRating");
+            Set.of(
+                    "id",
+                    "createdAt",
+                    "name",
+                    "price",
+                    "soldCount",
+                    "averageRating"
+            );
 
     private final ProductRepo productRepo;
     private final EntityDtoMapper mapper;
 
+    @Override
     public Page<ProductDto> search(
             String query,
             Long categoryId,
@@ -40,6 +49,62 @@ public class ProductCatalogService {
             int size,
             String sortBy,
             String direction
+    ) {
+        return searchInternal(
+                query,
+                categoryId,
+                petType,
+                minPrice,
+                maxPrice,
+                page,
+                size,
+                sortBy,
+                direction,
+                false
+        );
+    }
+
+    @Override
+    public Page<ProductDto> searchAdmin(
+            String query,
+            int page,
+            int size,
+            String sortBy,
+            String direction
+    ) {
+        return searchInternal(
+                query,
+                null,
+                null,
+                null,
+                null,
+                page,
+                size,
+                sortBy,
+                direction,
+                true
+        );
+    }
+
+    @Override
+    public ProductDto getAdminProduct(Long id) {
+        Product product = productRepo.findById(id)
+                .orElseThrow(() -> new NotFoundException("Product not found"));
+
+        return mapper.mapProductToDtoBasic(product);
+    }
+
+    private Page<ProductDto> searchInternal(
+            String query,
+            Long categoryId,
+            String petType,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            int page,
+            int size,
+            String sortBy,
+            String direction,
+            boolean includeInactive
     ) {
         if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
             throw com.dtvi.Pet.Ecommerce.exception.BusinessException.badRequest(
@@ -59,13 +124,26 @@ public class ProductCatalogService {
 
         Specification<Product> specification = (root, criteriaQuery, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(builder.isTrue(root.get("active")));
+            if (!includeInactive) {
+                predicates.add(builder.isTrue(root.get("active")));
+            }
+
             if (query != null && !query.isBlank()) {
                 String pattern = "%" + query.trim().toLowerCase(Locale.ROOT) + "%";
                 predicates.add(builder.or(
                         builder.like(builder.lower(root.get("name")), pattern),
-                        builder.like(builder.lower(root.get("description")), pattern),
-                        builder.like(builder.lower(root.get("brand")), pattern)
+                        builder.like(
+                                builder.lower(builder.coalesce(root.<String>get("description"), "")),
+                                pattern
+                        ),
+                        builder.like(
+                                builder.lower(builder.coalesce(root.<String>get("brand"), "")),
+                                pattern
+                        ),
+                        builder.like(
+                                builder.lower(builder.coalesce(root.<String>get("sku"), "")),
+                                pattern
+                        )
                 ));
             }
             if (categoryId != null) {

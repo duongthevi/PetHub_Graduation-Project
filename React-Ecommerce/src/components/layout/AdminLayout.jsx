@@ -4,11 +4,14 @@ import {
   Boxes,
   ChevronLeft,
   ClipboardList,
+  History,
   LayoutDashboard,
   LogOut,
   Menu,
   PawPrint,
   Percent,
+  RotateCcw,
+  ScrollText,
   Shapes,
   Store,
   Users,
@@ -16,12 +19,22 @@ import {
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "../../context/AuthContext";
+import { REFUND_ENABLED } from "../../config/features";
 
 const links = [
   { to: "/admin/dashboard", label: "Tổng quan", icon: LayoutDashboard },
   { to: "/admin/products", label: "Sản phẩm", icon: Boxes },
   { to: "/admin/categories", label: "Danh mục", icon: Shapes },
   { to: "/admin/orders", label: "Đơn hàng", icon: ClipboardList },
+  (REFUND_ENABLED
+    ? [{
+        to: "/admin/refunds",
+        label: "Hoàn tiền",
+        icon: RotateCcw,
+      }]
+    : []),
+  { to: "/admin/inventory", label: "Lịch sử tồn kho", icon: History },
+  { to: "/admin/audit-logs", label: "Nhật ký quản trị", icon: ScrollText },
   { to: "/admin/coupons", label: "Mã giảm giá", icon: Percent },
   { to: "/admin/users", label: "Khách hàng", icon: Users },
   { to: "/admin/knowledge", label: "Kho tri thức AI", icon: BookOpenText },

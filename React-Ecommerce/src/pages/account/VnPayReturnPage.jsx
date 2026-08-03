@@ -16,6 +16,29 @@ export default function VnPayReturnPage() {
   }, [params]);
 
   if (!result) return <div className="payment-result"><LoaderCircle className="spin" /><h1>Đang xác minh thanh toán</h1><p>Vui lòng không đóng trang này.</p></div>;
+  if (result.pending) {
+    return (
+      <div className="payment-result">
+        <LoaderCircle className="spin" />
+        <span className="eyebrow">Kết quả VNPay</span>
+        <h1>Đang chờ VNPay xác nhận</h1>
+        <p>{result.message}</p>
+
+        {result.orderCode && (
+          <strong>Mã đơn hàng: #{result.orderCode}</strong>
+        )}
+
+        <div>
+          <Link
+            className="button button--primary"
+            to={result.orderId ? `/orders/${result.orderId}` : "/orders"}
+          >
+            Xem đơn hàng
+          </Link>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`payment-result ${result.successful ? "is-success" : "is-failed"}`}>
       {result.successful ? <CheckCircle2 /> : <XCircle />}

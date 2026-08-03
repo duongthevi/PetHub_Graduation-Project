@@ -4,12 +4,13 @@ import com.dtvi.Pet.Ecommerce.dto.ProductDto;
 import com.dtvi.Pet.Ecommerce.dto.Response;
 import com.dtvi.Pet.Ecommerce.entity.Category;
 import com.dtvi.Pet.Ecommerce.entity.Product;
+import com.dtvi.Pet.Ecommerce.enums.InventoryTransactionType;
+import com.dtvi.Pet.Ecommerce.exception.BusinessException;
 import com.dtvi.Pet.Ecommerce.exception.CategoryOperationException;
 import com.dtvi.Pet.Ecommerce.exception.NotFoundException;
 import com.dtvi.Pet.Ecommerce.mapper.EntityDtoMapper;
 import com.dtvi.Pet.Ecommerce.repository.CategoryRepo;
 import com.dtvi.Pet.Ecommerce.repository.ProductRepo;
-import com.dtvi.Pet.Ecommerce.repository.OrderItemRepo;
 import com.dtvi.Pet.Ecommerce.service.interf.AwsS3Service;
 import com.dtvi.Pet.Ecommerce.service.interf.ProductService;
 import lombok.RequiredArgsConstructor;
@@ -35,9 +36,9 @@ public class ProductServiceImpl implements ProductService {
 
     private final ProductRepo productRepo;
     private final CategoryRepo categoryRepo;
-    private final OrderItemRepo orderItemRepo;
     private final EntityDtoMapper entityDtoMapper;
     private final AwsS3Service awsS3Service;
+    private final InventoryTransactionService inventoryTransactionService;
 
 
 
@@ -56,7 +57,10 @@ public class ProductServiceImpl implements ProductService {
         if (categoryId == null || image == null || image.isEmpty() || name == null || name.isBlank()
                 || description == null || description.isBlank() || price == null
                 || price.signum() <= 0 || price.stripTrailingZeros().scale() > 0 || quantity <= 0) {
-            throw new NotFoundException("All Fields are Required");
+            throw BusinessException.badRequest(
+                    "INVALID_PRODUCT_INPUT",
+                    "Product fields are missing or invalid"
+            );
         }
         validatePrice(price);
         Category category = categoryRepo.findById(categoryId).orElseThrow(()-> new NotFoundException("Category not found"));
@@ -76,7 +80,17 @@ public class ProductServiceImpl implements ProductService {
         product.setPetType(petType == null ? null : petType.trim());
         product.setActive(true);
 
-        productRepo.save(product);
+        Product saved = productRepo.save(product);
+
+        inventoryTransactionService.record(
+            saved,
+            null,
+            InventoryTransactionType.INITIAL_STOCK,
+            saved.getQuantity(),
+            saved.getSku(),
+            "Initial stock when product was created"
+        );
+
         return Response.builder()
                 .status(200)
                 .message("Product successfully created")
@@ -89,7 +103,17 @@ public class ProductServiceImpl implements ProductService {
                                   String brand, String petType, Boolean active) {
 
         // Kiểm tra nếu tên sản phẩm đã tồn tại (trừ chính nó)
-        if (productRepo.existsByNameAndIdNot(name, productId)) {
+        if (name != null && name.isBlank()) {
+            throw BusinessException.badRequest(
+                    "PRODUCT_NAME_REQUIRED", "Product name must not be blank"
+            );
+        }
+        if (description != null && description.isBlank()) {
+            throw BusinessException.badRequest(
+                    "PRODUCT_DESCRIPTION_REQUIRED", "Product description must not be blank"
+            );
+        }
+        if (name != null && productRepo.existsByNameAndIdNot(name.trim(), productId)) {
             throw new CategoryOperationException("Product name already exists: " + name);
         }
         if (sku != null && !sku.isBlank()
@@ -97,7 +121,12 @@ public class ProductServiceImpl implements ProductService {
             throw new CategoryOperationException("Product SKU already exists: " + sku);
         }
 
-        Product product = productRepo.findById(productId).orElseThrow(()-> new NotFoundException("Product Not Found"));
+        Product product = productRepo.findByIdForUpdate(productId)
+            .orElseThrow(() ->
+                new NotFoundException("Product Not Found")
+            );
+
+        int oldQuantity = product.getQuantity();
 
         Category category = null;
         String productImageUrl = null;
@@ -110,12 +139,12 @@ public class ProductServiceImpl implements ProductService {
         }
 
         if (category != null) product.setCategory(category);
-        if (name != null) product.setName(name);
+        if (name != null) product.setName(name.trim());
         if (price != null) {
             validatePrice(price);
             product.setPrice(price);
         }
-        if (description != null) product.setDescription(description);
+        if (description != null) product.setDescription(description.trim());
         if (productImageUrl != null) product.setImageUrl(productImageUrl);
         if (sku != null && !sku.isBlank()) product.setSku(sku.trim().toUpperCase(Locale.ROOT));
         if (brand != null) product.setBrand(brand.trim());
@@ -128,7 +157,20 @@ public class ProductServiceImpl implements ProductService {
             product.setQuantity(quantity);
         }
 
-        productRepo.save(product);
+        Product saved = productRepo.save(product);
+
+        int inventoryDifference =
+            saved.getQuantity() - oldQuantity;
+
+        inventoryTransactionService.record(
+            saved,
+            null,
+            InventoryTransactionType.ADMIN_ADJUSTMENT,
+            inventoryDifference,
+            saved.getSku(),
+            "Inventory adjusted by administrator"
+        );
+
         return Response.builder()
                 .status(200)
                 .message("Product updated successfully")

@@ -75,9 +75,26 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public Response getAllCategories() {
         List<Category> categories = categoryRepo.findAll();
-        List<CategoryDto> categoryDtoList = categories.stream()
-                .map(entityDtoMapper::mapCategoryToDtoBasic)
-                .collect(Collectors.toList());
+        List<CategoryDto> categoryDtoList =
+            categoryRepo.findAll()
+                    .stream()
+                    .map(category -> {
+                        CategoryDto dto =
+                                entityDtoMapper
+                                        .mapCategoryToDtoBasic(
+                                                category
+                                        );
+
+                        dto.setProductCount(
+                                productRepo
+                                        .countByCategoryIdAndActiveTrue(
+                                                category.getId()
+                                        )
+                        );
+
+                        return dto;
+                    })
+                    .toList();
 
         return  Response.builder()
                 .status(200)

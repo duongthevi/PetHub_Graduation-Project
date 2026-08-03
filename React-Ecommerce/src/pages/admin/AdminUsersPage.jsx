@@ -1,32 +1,127 @@
-import { Search, ShieldCheck, UserCheck, UserX } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { adminApi } from "../../api/api";
 import AdminPageHeader from "../../components/admin/AdminPageHeader";
 import Loader from "../../components/common/Loader";
 import { getErrorMessage } from "../../utils/format";
+import Pagination from "../../components/common/Pagination";
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState([]);
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  useEffect(() => { adminApi.users().then((response) => setUsers(response.userList ?? [])).finally(() => setLoading(false)); }, []);
-  const visible = useMemo(() => users.filter((user) => `${user.name} ${user.email} ${user.phoneNumber}`.toLowerCase().includes(query.toLowerCase())), [users, query]);
+  const [data, setData] = useState({
+      content: [],
+      number: 0,
+      totalPages: 0,
+      totalElements: 0,
+    });
+    const [query, setQuery] = useState("");
+    const [loading, setLoading] = useState(true);
+    
+    const load = useCallback(
+    (page = 0) => {
+      setLoading(true);
 
-  const setEnabled = async (user, enabled) => {
-    const action = enabled ? "mở khóa" : "khóa";
-    if (!window.confirm(`Bạn muốn ${action} tài khoản ${user.email}?`)) return;
+      adminApi
+        .users({
+          page,
+          size: 10,
+          q: query.trim() || undefined,
+        })
+        .then((response) => {
+          setData(response.data);
+        })
+        .catch((error) => {
+          toast.error(getErrorMessage(error));
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    },
+    [query]
+  );
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      load(0);
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [load]);
+
+  const toggleEnabled = async (user) => {
     try {
-      await adminApi.setUserEnabled(user.id, enabled);
-      setUsers((current) => current.map((item) => item.id === user.id ? { ...item, enabled } : item));
-      toast.success(`Đã ${action} tài khoản`);
-    } catch (error) { toast.error(getErrorMessage(error)); }
+      await adminApi.setUserEnabled(user.id, !user.enabled);
+      toast.success("Đã cập nhật trạng thái tài khoản");
+      load(data.number);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
   };
 
   return (
     <>
-      <AdminPageHeader title="Quản lý người dùng" description={`${users.length} tài khoản đã đăng ký`} />
-      <section className="admin-card"><div className="table-toolbar"><span className="admin-search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm tên, email, số điện thoại..." /></span></div>{loading ? <Loader /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Người dùng</th><th>Liên hệ</th><th>Vai trò</th><th>Trạng thái</th><th>Kiểm soát</th></tr></thead><tbody>{visible.map((user) => <tr key={user.id}><td><div className="table-user"><span className="avatar">{user.name?.charAt(0)}</span><span><strong>{user.name}</strong><small>ID #{user.id}</small></span></div></td><td>{user.email}<br /><small>{user.phoneNumber}</small></td><td><span className="role-badge"><ShieldCheck /> {user.role}</span></td><td><span className={`status ${user.enabled === false ? "status--inactive" : "status--active"}`}>{user.enabled === false ? "Đã khóa" : "Hoạt động"}</span></td><td>{user.role !== "ADMIN" && <div className="table-actions"><button className="button button--outline button--small button--danger" onClick={() => setEnabled(user, false)} disabled={user.enabled === false}><UserX /> Khóa</button><button className="button button--outline button--small" onClick={() => setEnabled(user, true)} disabled={user.enabled !== false}><UserCheck /> Mở</button></div>}</td></tr>)}</tbody></table></div>}</section>
+      <AdminPageHeader
+        title="Quản lý người dùng"
+        description={`${data.totalElements || 0} tài khoản đã đăng ký`}
+      />
+      <section className="admin-card">
+        <div className="table-toolbar">
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Tìm theo tên, email, số điện thoại"
+          />
+        </div>
+
+        {loading ? (
+          <Loader />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Tên</th>
+                  <th>Email</th>
+                  <th>Điện thoại</th>
+                  <th>Vai trò</th>
+                  <th>Trạng thái</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {data.content.map((user) => (
+                  <tr key={user.id}>
+                    <td>{user.name}</td>
+                    <td>{user.email}</td>
+                    <td>{user.phoneNumber || "—"}</td>
+                    <td>{user.role}</td>
+                    <td>{user.enabled ? "Hoạt động" : "Bị khóa"}</td>
+                    <td>
+                      <button
+                        className="button button--outline"
+                        onClick={() => toggleEnabled(user)}
+                      >
+                        {user.enabled ? "Khóa" : "Mở khóa"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!loading && (
+          <Pagination
+            page={data.number}
+            totalPages={data.totalPages}
+            onChange={load}
+          />
+        )}
+      </section>
     </>
   );
 }
+

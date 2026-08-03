@@ -68,7 +68,7 @@ public class PasswordResetService {
     }
 
     public void resetPassword(String rawToken, String newPassword) {
-        PasswordResetToken token = tokenRepo.findByTokenHash(hash(rawToken.trim()))
+        PasswordResetToken token = tokenRepo.findForUpdateByTokenHash(hash(rawToken.trim()))
                 .orElseThrow(() -> BusinessException.badRequest(
                         "RESET_TOKEN_INVALID",
                         "Password reset token is invalid"
@@ -80,6 +80,12 @@ public class PasswordResetService {
             );
         }
         User user = token.getUser();
+        if (passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw BusinessException.badRequest(
+                    "PASSWORD_UNCHANGED",
+                    "New password must be different from the current password"
+            );
+        }
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepo.save(user);
         token.setUsedAt(LocalDateTime.now());

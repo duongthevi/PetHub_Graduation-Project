@@ -1,5 +1,5 @@
 import { BadgeCheck, Banknote, CreditCard, MapPin, PackageCheck } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { couponApi, orderApi, profileApi } from "../../api/api";
@@ -16,6 +16,7 @@ const SHIPPING_FEE = Number(import.meta.env.VITE_SHIPPING_FEE ?? 30_000);
 const FREE_SHIPPING_THRESHOLD = Number(import.meta.env.VITE_FREE_SHIPPING_THRESHOLD ?? 500_000);
 
 export default function CheckoutPage() {
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
   const { cart, loading: cartLoading, refreshCart } = useCart();
   const [form, setForm] = useState(emptyForm);
   const [coupon, setCoupon] = useState(null);
@@ -61,21 +62,69 @@ export default function CheckoutPage() {
   };
 
   const submit = async (event) => {
-    event.preventDefault();
-    setSubmitting(true);
-    try {
-      const response = await orderApi.checkout({ ...form, couponCode: form.couponCode.trim() || null });
-      const checkout = response.data;
+  event.preventDefault();
+
+  if (submitting) return;
+  setSubmitting(true);
+
+  let createdOrder = null;
+
+  try {
+    const response = await orderApi.checkout(
+      {
+        ...form,
+        couponCode:
+          form.couponCode.trim() || null,
+      },
+      idempotencyKeyRef.current,
+    );
+
+    const checkout = response.data;
+      createdOrder = checkout.order;
+
+      idempotencyKeyRef.current =
+        crypto.randomUUID();
+
       await refreshCart();
-      if (checkout.requiresOnlinePayment) {
-        const paymentResponse = await orderApi.createVnPayUrl(checkout.order.id);
-        window.location.assign(paymentResponse.data.paymentUrl);
+
+      if (!checkout.requiresOnlinePayment) {
+        toast.success("Đặt hàng thành công");
+
+        navigate(
+          `/orders/${createdOrder.id}`,
+          { replace: true },
+        );
+
         return;
       }
-      toast.success("Đặt hàng thành công");
-      navigate(`/orders/${checkout.order.id}`, { replace: true });
+
+      try {
+        const paymentResponse =
+          await orderApi.createVnPayUrl(
+            createdOrder.id,
+          );
+
+        window.location.assign(
+          paymentResponse.data.paymentUrl,
+        );
+      } catch {
+        toast.error(
+          "Đơn hàng đã được tạo nhưng chưa mở được VNPay. Hãy thanh toán lại trong chi tiết đơn.",
+        );
+
+        navigate(
+          `/orders/${createdOrder.id}`,
+          { replace: true },
+        );
+      }
     } catch (error) {
-      toast.error(getErrorMessage(error, "Không thể tạo đơn hàng"));
+      toast.error(
+        getErrorMessage(
+          error,
+          "Không thể tạo đơn hàng",
+        ),
+      );
+
       setSubmitting(false);
     }
   };

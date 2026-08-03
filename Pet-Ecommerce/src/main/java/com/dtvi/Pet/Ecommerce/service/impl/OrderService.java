@@ -5,14 +5,17 @@ import com.dtvi.Pet.Ecommerce.dto.order.CheckoutResponse;
 import com.dtvi.Pet.Ecommerce.dto.order.OrderResponse;
 import com.dtvi.Pet.Ecommerce.entity.*;
 import com.dtvi.Pet.Ecommerce.enums.*;
+import com.dtvi.Pet.Ecommerce.enums.InventoryTransactionType;
 import com.dtvi.Pet.Ecommerce.exception.BusinessException;
 import com.dtvi.Pet.Ecommerce.exception.NotFoundException;
 import com.dtvi.Pet.Ecommerce.repository.*;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,8 +43,7 @@ public class OrderService {
             OrderStatus.PENDING, EnumSet.of(OrderStatus.CONFIRMED, OrderStatus.CANCELLED),
             OrderStatus.CONFIRMED, EnumSet.of(OrderStatus.PROCESSING, OrderStatus.CANCELLED),
             OrderStatus.PROCESSING, EnumSet.of(OrderStatus.SHIPPING, OrderStatus.CANCELLED),
-            OrderStatus.SHIPPING, EnumSet.of(OrderStatus.DELIVERED),
-            OrderStatus.DELIVERED, EnumSet.of(OrderStatus.RETURNED)
+            OrderStatus.SHIPPING, EnumSet.of(OrderStatus.DELIVERED)
     );
 
     private final CartRepo cartRepo;
@@ -49,6 +51,8 @@ public class OrderService {
     private final OrderRepo orderRepo;
     private final PaymentRepo paymentRepo;
     private final CouponService couponService;
+    private final UserRepo userRepo;
+    private final InventoryTransactionService inventoryTransactionService;
 
     @Value("${app.checkout.shipping-fee:30000}")
     private BigDecimal defaultShippingFee;
@@ -59,8 +63,33 @@ public class OrderService {
     @Value("${app.payment.vnpay.pending-minutes:15}")
     private long vnpayPendingMinutes;
 
-    public CheckoutResponse checkout(User user, CheckoutRequest request) {
-        Cart cart = cartRepo.findWithItemsByUserId(user.getId())
+    public CheckoutResponse checkout(User user, CheckoutRequest request, String idempotencyKey) {
+        User managedUser = userRepo.findByIdForUpdate(user.getId())
+                .orElseThrow(() ->
+                        new NotFoundException("User not found")
+                );
+
+        Optional<Order> existing =
+                orderRepo.findByUserIdAndIdempotencyKey(
+                        managedUser.getId(),
+                        idempotencyKey
+                );
+
+        if (existing.isPresent()) {
+            Order order = existing.get();
+
+            return new CheckoutResponse(
+                    OrderResponse.from(order),
+                    order.getPaymentMethod()
+                            == PaymentMethod.VNPAY
+                            && order.getPaymentStatus()
+                            == PaymentStatus.PENDING
+            );
+        }
+
+        Cart cart = cartRepo.findForUpdateByUserId(
+                managedUser.getId()
+        )
                 .orElseThrow(() -> BusinessException.badRequest("CART_EMPTY", "Cart is empty"));
         if (cart.getItems().isEmpty()) {
             throw BusinessException.badRequest("CART_EMPTY", "Cart is empty");
@@ -84,7 +113,7 @@ public class OrderService {
         Coupon coupon = null;
         BigDecimal discount = BigDecimal.ZERO;
         if (request.couponCode() != null && !request.couponCode().isBlank()) {
-            coupon = couponService.requireValid(request.couponCode(), subtotal, user);
+            coupon = couponService.requireValid(request.couponCode(), subtotal, managedUser);
             discount = couponService.calculateDiscount(coupon, subtotal);
         }
         BigDecimal shippingFee = subtotal.compareTo(freeShippingThreshold) >= 0
@@ -98,19 +127,33 @@ public class OrderService {
             );
         }
 
-        Order order = buildOrder(user, request, subtotal, discount, shippingFee, coupon);
+        Order order = buildOrder(managedUser, request, subtotal, discount, shippingFee, coupon);
+        order.setIdempotencyKey(idempotencyKey);
         List<OrderItem> items = new ArrayList<>();
         for (CartItem cartItem : cart.getItems()) {
             Product product = lockedProducts.get(cartItem.getProduct().getId());
-            OrderItem item = buildOrderItem(order, user, product, cartItem.getQuantity());
+            OrderItem item = buildOrderItem(order, managedUser, product, cartItem.getQuantity());
             items.add(item);
             product.setQuantity(product.getQuantity() - cartItem.getQuantity());
         }
         order.setOrderItemList(items);
         Order saved = orderRepo.save(order);
 
+        for (OrderItem item : saved.getOrderItemList()) {
+            Product product = item.getProduct();
+
+            inventoryTransactionService.record(
+                    product,
+                    saved,
+                    InventoryTransactionType.ORDER_RESERVED,
+                    -item.getQuantity(),
+                    saved.getOrderCode(),
+                    "Inventory reserved during checkout"
+            );
+        }
+
         if (coupon != null) {
-            couponService.recordUsage(coupon, user, saved);
+            couponService.recordUsage(coupon, managedUser, saved);
         }
         if (request.paymentMethod() == PaymentMethod.COD) {
             createCodPayment(saved);
@@ -118,14 +161,18 @@ public class OrderService {
 
         cart.getItems().clear();
         cartRepo.save(cart);
-        return new CheckoutResponse(OrderResponse.from(saved), request.paymentMethod() == PaymentMethod.VNPAY);
+
+        return new CheckoutResponse(
+                OrderResponse.from(saved),
+                request.paymentMethod() == PaymentMethod.VNPAY
+        );
     }
 
     @Transactional(readOnly = true)
     public Page<OrderResponse> getMyOrders(User user, int page, int size) {
         return orderRepo.findByUserIdOrderByCreatedAtDesc(
                 user.getId(),
-                PageRequest.of(page, Math.min(size, 50))
+                PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 50)))
         ).map(OrderResponse::from);
     }
 
@@ -138,14 +185,31 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Page<OrderResponse> getAllOrders(int page, int size) {
-        return orderRepo.findAll(
-                PageRequest.of(page, Math.min(size, 100), Sort.by(Sort.Direction.DESC, "createdAt"))
-        ).map(OrderResponse::from);
+        return getAllOrders(page, size, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> getAllOrders(int page, int size, String query, OrderStatus status) {
+        String normalized = query == null ? "" : query.trim();
+        PageRequest pageable = PageRequest.of(
+                Math.max(0, page),
+                Math.max(1, Math.min(size, 100)),
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        Specification<Order> specification = buildAdminSpecification(normalized, status);
+        return orderRepo.findAll(specification, pageable).map(OrderResponse::from);
     }
 
     public OrderResponse cancelByUser(User user, Long orderId) {
         Order order = getOrderForUpdate(orderId);
         ensureOwner(user, order);
+        if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            throw BusinessException.conflict(
+                    "ONLINE_PAYMENT_IN_PROGRESS",
+                    "An active VNPay payment cannot be cancelled by the customer"
+            );
+        }
         if (!USER_CANCELLABLE.contains(order.getStatus())) {
             throw BusinessException.conflict(
                     "ORDER_CANNOT_BE_CANCELLED",
@@ -179,8 +243,6 @@ public class OrderService {
 
         if (newStatus == OrderStatus.DELIVERED) {
             markDelivered(order);
-        } else if (newStatus == OrderStatus.RETURNED) {
-            processReturn(order);
         }
         return OrderResponse.from(orderRepo.save(order));
     }
@@ -195,7 +257,6 @@ public class OrderService {
             throw BusinessException.conflict("ORDER_NOT_PAYABLE", "Order is not awaiting online payment");
         }
         if (order.getPaymentExpiresAt() != null && order.getPaymentExpiresAt().isBefore(LocalDateTime.now())) {
-            cancelOrder(order, "Online payment expired");
             throw BusinessException.conflict("PAYMENT_EXPIRED", "Online payment window has expired");
         }
         return order;
@@ -229,11 +290,15 @@ public class OrderService {
         confirmPaidVnpayOrder(order);
     }
 
-    public void cancelFailedOnlinePayment(Order order, String reason) {
+    public void recordOnlinePaymentAttemptFailed(
+            Order order,
+            String reason
+    ) {
         order = getOrderForUpdate(order.getId());
-        if (order.getStatus() == OrderStatus.PENDING_PAYMENT) {
-            order.setPaymentStatus(PaymentStatus.FAILED);
-            cancelOrder(order, reason);
+        if (order.getStatus() == OrderStatus.PENDING_PAYMENT
+                && order.getPaymentStatus() == PaymentStatus.PENDING) {
+            order.setAdminMessage(reason);
+            orderRepo.save(order);
         }
     }
 
@@ -241,7 +306,7 @@ public class OrderService {
     public void expirePendingOnlinePayments() {
         orderRepo.findByStatusAndPaymentExpiresAtBefore(
                         OrderStatus.PENDING_PAYMENT,
-                        LocalDateTime.now()
+                        LocalDateTime.now().minusMinutes(3)
                 )
                 .forEach(order -> {
                     Order lockedOrder = getOrderForUpdate(order.getId());
@@ -259,6 +324,31 @@ public class OrderService {
 
     public Order lockForPayment(Long orderId) {
         return getOrderForUpdate(orderId);
+    }
+
+    private Specification<Order> buildAdminSpecification(String query, OrderStatus status) {
+        return (root, criteriaQuery, builder) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (status != null) {
+                predicates.add(builder.equal(root.get("status"), status));
+            }
+
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.trim().toLowerCase(Locale.ROOT) + "%";
+                var userJoin = root.join("user", jakarta.persistence.criteria.JoinType.LEFT);
+
+                predicates.add(builder.or(
+                        builder.like(builder.lower(root.get("orderCode")), pattern),
+                        builder.like(builder.lower(root.get("recipientName")), pattern),
+                        builder.like(builder.lower(root.get("recipientPhone")), pattern),
+                        builder.like(builder.lower(userJoin.get("name")), pattern),
+                        builder.like(builder.lower(userJoin.get("email")), pattern)
+                ));
+            }
+
+            return builder.and(predicates.toArray(Predicate[]::new));
+        };
     }
 
     private Order buildOrder(
@@ -376,26 +466,10 @@ public class OrderService {
                         payment.setPaidAt(LocalDateTime.now());
                     });
         }
-    }
 
-    private void processReturn(Order order) {
-        if (order.getPaymentMethod() == PaymentMethod.VNPAY
-                && order.getPaymentStatus() == PaymentStatus.PAID) {
-            throw BusinessException.conflict(
-                    "VNPAY_REFUND_REQUIRED",
-                    "Phải hoàn tiền qua VNPay và xác nhận giao dịch hoàn tiền trước khi đánh dấu đơn đã hoàn."
-            );
+        if (order.getDeliveredAt() == null) {
+            order.setDeliveredAt(LocalDateTime.now());
         }
-
-        for (OrderItem item : order.getOrderItemList()) {
-            Product product = item.getProduct();
-            product.setQuantity(product.getQuantity() + item.getQuantity());
-            product.setSoldCount(Math.max(0, product.getSoldCount() - item.getQuantity()));
-        }
-        order.setPaymentStatus(PaymentStatus.REFUNDED);
-        paymentRepo.findByOrderIdOrderByCreatedAtDesc(order.getId()).stream()
-                .filter(payment -> payment.getStatus() == PaymentStatus.PAID)
-                .forEach(payment -> payment.setStatus(PaymentStatus.REFUNDED));
     }
 
     private void confirmPaidVnpayOrder(Order order) {
@@ -416,6 +490,15 @@ public class OrderService {
             Product product = productRepo.findByIdForUpdate(item.getProduct().getId())
                     .orElseThrow(() -> new NotFoundException("Product not found"));
             product.setQuantity(product.getQuantity() + item.getQuantity());
+
+            inventoryTransactionService.record(
+                    product,
+                    order,
+                    InventoryTransactionType.ORDER_CANCELLED,
+                    item.getQuantity(),
+                    order.getOrderCode(),
+                    "Inventory returned because order was cancelled"
+            );
         }
     }
 

@@ -6,11 +6,23 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+
 import java.time.LocalDateTime;
 import java.util.Optional;
 
 public interface PasswordResetTokenRepo extends JpaRepository<PasswordResetToken, Long> {
-    Optional<PasswordResetToken> findByTokenHash(String tokenHash);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("""
+                select token
+                from PasswordResetToken token
+                join fetch token.user
+                where token.tokenHash = :tokenHash
+                """)
+        Optional<PasswordResetToken> findForUpdateByTokenHash(
+                @Param("tokenHash") String tokenHash
+        );
 
     @Modifying
     @Query("""

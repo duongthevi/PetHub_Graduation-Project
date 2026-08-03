@@ -5,6 +5,7 @@ import com.dtvi.Pet.Ecommerce.dto.user.ChangePasswordRequest;
 import com.dtvi.Pet.Ecommerce.dto.user.ProfileUpdateRequest;
 import com.dtvi.Pet.Ecommerce.dto.user.UserProfileResponse;
 import com.dtvi.Pet.Ecommerce.entity.User;
+import com.dtvi.Pet.Ecommerce.enums.UserRole;
 import com.dtvi.Pet.Ecommerce.exception.BusinessException;
 import com.dtvi.Pet.Ecommerce.exception.NotFoundException;
 import com.dtvi.Pet.Ecommerce.mapper.EntityDtoMapper;
@@ -62,9 +63,22 @@ public class ProfileService {
         refreshTokenRepo.revokeAllActiveTokensByUserId(user.getId(), LocalDateTime.now());
     }
 
-    public UserProfileResponse setEnabled(Long userId, boolean enabled) {
-        User user = userRepo.findById(userId)
+    public UserProfileResponse setEnabled(Long actorId, Long userId, boolean enabled) {
+        if (!enabled && actorId.equals(userId)) {
+            throw BusinessException.conflict(
+                    "ADMIN_SELF_DISABLE_FORBIDDEN",
+                    "Administrators cannot disable their own account"
+            );
+        }
+        User user = userRepo.findByIdForUpdate(userId)
                 .orElseThrow(() -> new NotFoundException("User not found"));
+        if (!enabled && user.getRole() == UserRole.ADMIN
+                && userRepo.countByRoleAndEnabledTrue(UserRole.ADMIN) <= 1) {
+            throw BusinessException.conflict(
+                    "LAST_ADMIN_DISABLE_FORBIDDEN",
+                    "The last active administrator cannot be disabled"
+            );
+        }
         user.setEnabled(enabled);
         userRepo.save(user);
         if (!enabled) {

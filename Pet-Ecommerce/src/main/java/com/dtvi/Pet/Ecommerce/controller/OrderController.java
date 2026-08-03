@@ -5,6 +5,7 @@ import com.dtvi.Pet.Ecommerce.dto.order.CheckoutRequest;
 import com.dtvi.Pet.Ecommerce.dto.order.CheckoutResponse;
 import com.dtvi.Pet.Ecommerce.dto.order.OrderResponse;
 import com.dtvi.Pet.Ecommerce.dto.order.OrderStatusRequest;
+import com.dtvi.Pet.Ecommerce.enums.OrderStatus;
 import com.dtvi.Pet.Ecommerce.security.AuthUser;
 import com.dtvi.Pet.Ecommerce.service.impl.OrderService;
 import jakarta.validation.Valid;
@@ -13,6 +14,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import com.dtvi.Pet.Ecommerce.exception.BusinessException;
 
 @RestController
 @RequestMapping("/orders")
@@ -22,12 +24,29 @@ public class OrderController {
     private final OrderService orderService;
 
     @PostMapping("/checkout")
-    public ApiResponse<CheckoutResponse> checkout(
-            @AuthenticationPrincipal AuthUser authUser,
-            @Valid @RequestBody CheckoutRequest request
-    ) {
-        return ApiResponse.success("Order created", orderService.checkout(authUser.getUser(), request));
-    }
+        public ApiResponse<CheckoutResponse> checkout(
+                @AuthenticationPrincipal AuthUser authUser,
+                @RequestHeader("Idempotency-Key")
+                String idempotencyKey,
+                @Valid @RequestBody CheckoutRequest request
+        ) {
+                if (idempotencyKey.isBlank()
+                        || idempotencyKey.length() > 64) {
+                        throw BusinessException.badRequest(
+                                "INVALID_IDEMPOTENCY_KEY",
+                                "Idempotency-Key is required and must not exceed 64 characters"
+                        );
+                }
+
+                return ApiResponse.success(
+                        "Order created",
+                        orderService.checkout(
+                                authUser.getUser(),
+                                request,
+                                idempotencyKey
+                        )
+                );
+        }
 
     @GetMapping("/my")
     public ApiResponse<Page<OrderResponse>> getMyOrders(
@@ -60,10 +79,17 @@ public class OrderController {
     @GetMapping("/admin/all")
     @PreAuthorize("hasAuthority('ADMIN')")
     public ApiResponse<Page<OrderResponse>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+        @RequestParam(required = false) String q,
+        @RequestParam(required = false) OrderStatus status,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.success("Orders retrieved", orderService.getAllOrders(page, size));
+        return ApiResponse.success("Orders retrieved", orderService.getAllOrders(
+                page,
+                size,
+                q,
+                status
+        ));
     }
 
     @PatchMapping("/admin/{orderId}/status")

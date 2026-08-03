@@ -32,7 +32,14 @@ public class CorsConfig {
                 List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
         );
         configuration.setAllowedHeaders(
-                List.of("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With")
+                List.of(
+                        "Authorization",
+                        "Content-Type",
+                        "Accept",
+                        "Origin",
+                        "X-Requested-With",
+                        "Idempotency-Key"
+                )
         );
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);

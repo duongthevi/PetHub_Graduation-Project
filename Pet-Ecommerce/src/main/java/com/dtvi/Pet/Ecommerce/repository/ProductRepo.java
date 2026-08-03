@@ -23,6 +23,7 @@ public interface ProductRepo extends JpaRepository<Product, Long>, JpaSpecificat
     List<Product> findTop20ByActiveTrueOrderBySoldCountDesc();
     long countByActiveTrue();
     long countByActiveTrueAndQuantityLessThan(int quantity);
+    long countByCategoryIdAndActiveTrue(Long categoryId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Product p where p.id = :id")

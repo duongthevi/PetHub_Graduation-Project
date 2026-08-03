@@ -62,6 +62,9 @@ public class Payment {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    @Column(name = "provider_paid_at")
+    private LocalDateTime providerPaidAt;
+
     @PrePersist
     void prePersist() {
         createdAt = LocalDateTime.now();

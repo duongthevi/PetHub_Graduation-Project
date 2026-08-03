@@ -2,7 +2,7 @@ const STATUS_LABELS = {
   PENDING_PAYMENT: "Chờ thanh toán",
   PENDING: "Chờ xác nhận",
   CONFIRMED: "Đã xác nhận",
-  PROCESSING: "Đang chuẩn bị",
+  PROCESSING: "Đang xử lý",
   SHIPPING: "Đang giao",
   DELIVERED: "Đã giao",
   CANCELLED: "Đã hủy",
@@ -11,6 +11,10 @@ const STATUS_LABELS = {
   PAID: "Đã thanh toán",
   FAILED: "Thanh toán lỗi",
   REFUNDED: "Đã hoàn tiền",
+  REQUESTED: "Đã yêu cầu",
+  APPROVED: "Đã duyệt",
+  COMPLETED: "Hoàn tiền thành công",
+  REJECTED: "Từ chối hoàn tiền",
 };
 
 export default function StatusBadge({ status }) {

@@ -12,7 +12,6 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 
 @Getter
 @Setter
@@ -20,6 +19,13 @@ import java.util.Objects;
 @AllArgsConstructor
 @NoArgsConstructor
 @Table(
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_order_user_idempotency",
+                columnNames = {
+                        "user_id",
+                        "idempotency_key"
+                }
+        ),
         name = "orders",
         indexes = {
                 @Index(name = "idx_orders_user_created", columnList = "user_id, created_at"),
@@ -32,6 +38,12 @@ public class Order {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(
+            name = "idempotency_key",
+            length = 64
+    )
+    private String idempotencyKey;
 
     @Column(name = "order_code", unique = true, length = 40)
     private String orderCode;
@@ -98,6 +110,9 @@ public class Order {
     @OneToMany(mappedBy = "order", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> orderItemList;
 
+    @OneToOne(mappedBy = "order", fetch = FetchType.LAZY)
+    private RefundRequest refundRequest;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -106,6 +121,9 @@ public class Order {
 
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
+
+    @Column(name = "delivered_at")
+    private LocalDateTime deliveredAt;
 
     @Column(name = "cancelled_at")
     private LocalDateTime cancelledAt;
@@ -139,7 +157,7 @@ public class Order {
     // hashCode method
     @Override
     public int hashCode() {
-        return Objects.hash(id); // Ensure hashCode is consistent with equals
+        return getClass().hashCode();
     }
 
     // canEqual method

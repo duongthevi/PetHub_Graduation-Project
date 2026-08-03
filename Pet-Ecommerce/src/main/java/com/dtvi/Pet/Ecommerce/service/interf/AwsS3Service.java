@@ -17,6 +17,8 @@ import java.io.InputStream;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.io.ByteArrayInputStream;
+
 
 @Service
 @Slf4j
@@ -40,47 +42,114 @@ public class AwsS3Service {
     @Value("${aws.s3.region}")
     private String region;
 
+    private record DetectedImage(
+            String contentType,
+            String extension
+    ) {
+    }
 
-    public String saveImageToS3(MultipartFile photo){
-        if (photo == null || photo.isEmpty() || !ALLOWED_CONTENT_TYPES.contains(photo.getContentType())) {
-            throw BusinessException.badRequest(
-                    "INVALID_IMAGE",
-                    "Only non-empty JPEG, PNG or WebP images are accepted"
-            );
+    public String saveImageToS3(MultipartFile photo) {
+        if (photo == null
+                || photo.isEmpty()
+                || !ALLOWED_CONTENT_TYPES.contains(photo.getContentType())) {
+                throw BusinessException.badRequest(
+                        "INVALID_IMAGE",
+                        "Only non-empty JPEG, PNG or WebP images are accepted"
+                );
         }
-        try (InputStream inputStream = photo.getInputStream()) {
-            String s3FileName = "images/" + UUID.randomUUID() + extension(photo.getContentType());
-            //create aes credentials using the access and secrete key
-            BasicAWSCredentials awsCredentials = new BasicAWSCredentials(awsS3AccessKey, awsS3SecretKey);
 
-            //create an s3 client with config credentials and region
-            AmazonS3 s3Client = AmazonS3ClientBuilder.standard()
-                    .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
-                    .withRegion(region)
-                    .build();
+        try {
+                byte[] bytes = photo.getBytes();
+                DetectedImage image = detectImage(bytes);
+                String fileName =
+                        "images/" + UUID.randomUUID() + image.extension();
 
-            // Set metadata from the validated upload.
-            ObjectMetadata metadata = new ObjectMetadata();
-            metadata.setContentType(photo.getContentType());
-            metadata.setContentLength(photo.getSize());
+                BasicAWSCredentials credentials =
+                        new BasicAWSCredentials(
+                                awsS3AccessKey,
+                                awsS3SecretKey
+                        );
 
-            //create a put request to upload the image to s3
-            PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, s3FileName, inputStream, metadata);
-            s3Client.putObject(putObjectRequest);
+                AmazonS3 s3Client = AmazonS3ClientBuilder.standard()
+                        .withCredentials(
+                                new AWSStaticCredentialsProvider(credentials)
+                        )
+                        .withRegion(region)
+                        .build();
 
-            return "https://" + bucketName + ".s3." + region + ".amazonaws.com/" + s3FileName;
+                ObjectMetadata metadata = new ObjectMetadata();
+                metadata.setContentType(image.contentType());
+                metadata.setContentLength(bytes.length);
 
-        } catch (IOException e) {
-            log.error("Unable to read product image upload", e);
-            throw new IllegalStateException("Unable to upload product image", e);
+                try (InputStream input =
+                        new ByteArrayInputStream(bytes)) {
+                s3Client.putObject(
+                        new PutObjectRequest(
+                                bucketName,
+                                fileName,
+                                input,
+                                metadata
+                        )
+                );
+                }
+
+                return "https://" + bucketName
+                        + ".s3." + region
+                        + ".amazonaws.com/" + fileName;
+
+        } catch (IOException exception) {
+                log.error("Unable to read product image", exception);
+                throw new IllegalStateException(
+                        "Unable to upload product image",
+                        exception
+                );
         }
     }
 
-    private String extension(String contentType) {
-        return switch (contentType.toLowerCase(Locale.ROOT)) {
-            case "image/png" -> ".png";
-            case "image/webp" -> ".webp";
-            default -> ".jpg";
-        };
+    private DetectedImage detectImage(byte[] bytes) {
+        if (bytes.length >= 3
+                && (bytes[0] & 0xff) == 0xff
+                && (bytes[1] & 0xff) == 0xd8
+                && (bytes[2] & 0xff) == 0xff) {
+            return new DetectedImage(
+                    "image/jpeg",
+                    ".jpg"
+            );
+        }
+
+        if (bytes.length >= 8
+                && (bytes[0] & 0xff) == 0x89
+                && bytes[1] == 0x50
+                && bytes[2] == 0x4e
+                && bytes[3] == 0x47
+                && bytes[4] == 0x0d
+                && bytes[5] == 0x0a
+                && bytes[6] == 0x1a
+                && bytes[7] == 0x0a) {
+            return new DetectedImage(
+                    "image/png",
+                    ".png"
+            );
+        }
+
+        if (bytes.length >= 12
+                && bytes[0] == 'R'
+                && bytes[1] == 'I'
+                && bytes[2] == 'F'
+                && bytes[3] == 'F'
+                && bytes[8] == 'W'
+                && bytes[9] == 'E'
+                && bytes[10] == 'B'
+                && bytes[11] == 'P') {
+            return new DetectedImage(
+                    "image/webp",
+                    ".webp"
+            );
+        }
+
+        throw BusinessException.badRequest(
+                "INVALID_IMAGE_CONTENT",
+                "Uploaded file is not a valid JPEG, PNG or WebP image"
+        );
     }
 }

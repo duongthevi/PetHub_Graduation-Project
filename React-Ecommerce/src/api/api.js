@@ -47,7 +47,12 @@ export const profileApi = {
 };
 
 export const orderApi = {
-  checkout: (body) => http.post("/orders/checkout", body).then(unwrap),
+  checkout: (body, idempotencyKey) =>
+    http.post("/orders/checkout", body, {
+      headers: {
+        "Idempotency-Key": idempotencyKey,
+      },
+    }).then(unwrap),
   mine: (params) => http.get("/orders/my", { params }).then(unwrap),
   get: (id) => http.get(`/orders/${id}`).then(unwrap),
   cancel: (id) => http.post(`/orders/${id}/cancel`).then(unwrap),
@@ -55,6 +60,46 @@ export const orderApi = {
     http.post(`/payments/vnpay/create/${id}`).then(unwrap),
   verifyVnPayReturn: (params) =>
     http.get("/payments/vnpay/return", { params }).then(unwrap),
+};
+
+export const refundApi = {
+  request: (orderId, reason) =>
+    http
+      .post(`/refunds/orders/${orderId}`, { reason })
+      .then(unwrap),
+  mine: (params) => http.get("/refunds/my", { params }).then(unwrap),
+};
+
+export const adminRefundApi = {
+  list: (params) =>
+    http.get("/admin/refunds", { params }).then(unwrap),
+
+  approve: (id, adminNote) =>
+    http
+      .patch(`/admin/refunds/${id}/approve`, { adminNote })
+      .then(unwrap),
+
+  reject: (id, adminNote) =>
+    http
+      .patch(`/admin/refunds/${id}/reject`, { adminNote })
+      .then(unwrap),
+
+  process: (id) =>
+    http
+      .post(`/admin/refunds/${id}/process`)
+      .then(unwrap),
+};
+
+export const adminAuditApi = {
+  list: (params) =>
+    http.get("/admin/audit-logs", { params }).then(unwrap),
+};
+
+export const adminInventoryApi = {
+  list: (params) =>
+    http
+      .get("/admin/inventory-transactions", { params })
+      .then(unwrap),
 };
 
 export const couponApi = {
@@ -84,9 +129,10 @@ export const adminApi = {
   monthlyStatistics: (month, year) =>
     http.get("/statistics/monthly", { params: { month, year } }).then(unwrap),
 
-  users: () => http.get("/user/get-all").then(unwrap),
-  setUserEnabled: (userId, enabled) =>
-    http.patch(`/user/admin/${userId}/enabled`, null, { params: { enabled } }).then(unwrap),
+  users: (params) =>
+    http.get("/user/get-all", { params }).then(unwrap),
+  setUserEnabled: (id, enabled) =>
+    http.patch(`/user/admin/${id}/enabled`, null, { params: { enabled } }).then(unwrap),
 
   createCategory: (body) => http.post("/category/create", body).then(unwrap),
   updateCategory: (id, body) =>
@@ -117,4 +163,10 @@ export const adminApi = {
     http.patch(`/rag/admin/documents/${id}`, null, { params: { active } }).then(unwrap),
   deleteKnowledgeDocument: (id) =>
     http.delete(`/rag/admin/documents/${id}`).then(unwrap),
+
+  products: (params) =>
+    http.get("/admin/products", { params }).then(unwrap),
+
+  product: (id) =>
+    http.get(`/admin/products/${id}`).then(unwrap),
 };

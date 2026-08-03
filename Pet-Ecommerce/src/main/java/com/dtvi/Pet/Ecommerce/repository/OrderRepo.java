@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
@@ -16,7 +17,7 @@ import java.util.List;
 import java.time.LocalDateTime;
 import com.dtvi.Pet.Ecommerce.enums.OrderStatus;
 
-public interface OrderRepo extends JpaRepository<Order, Long> {
+public interface OrderRepo extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> {
 
     @EntityGraph(attributePaths = {"orderItemList", "orderItemList.product", "user", "coupon"})
     Page<Order> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
@@ -63,4 +64,9 @@ public interface OrderRepo extends JpaRepository<Order, Long> {
               and o.status <> com.dtvi.Pet.Ecommerce.enums.OrderStatus.CANCELLED
             """)
     long countMonthlyValidOrders(@Param("month") int month, @Param("year") int year);
+
+    Optional<Order> findByUserIdAndIdempotencyKey(
+                Long userId,
+                String idempotencyKey
+        );
 }

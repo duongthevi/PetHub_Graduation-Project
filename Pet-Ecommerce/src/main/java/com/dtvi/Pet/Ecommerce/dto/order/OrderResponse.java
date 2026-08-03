@@ -4,6 +4,7 @@ import com.dtvi.Pet.Ecommerce.entity.Order;
 import com.dtvi.Pet.Ecommerce.enums.OrderStatus;
 import com.dtvi.Pet.Ecommerce.enums.PaymentMethod;
 import com.dtvi.Pet.Ecommerce.enums.PaymentStatus;
+import com.dtvi.Pet.Ecommerce.enums.RefundStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -24,6 +25,7 @@ public record OrderResponse(
         OrderStatus status,
         PaymentMethod paymentMethod,
         PaymentStatus paymentStatus,
+        RefundStatus refundStatus,
         String recipientName,
         String recipientPhone,
         String shippingAddress,
@@ -55,6 +57,8 @@ public record OrderResponse(
                 order.getStatus(),
                 order.getPaymentMethod(),
                 order.getPaymentStatus(),
+                order.getRefundRequest() == null
+                        ? null : order.getRefundRequest().getStatus(),
                 order.getRecipientName(),
                 order.getRecipientPhone(),
                 address,

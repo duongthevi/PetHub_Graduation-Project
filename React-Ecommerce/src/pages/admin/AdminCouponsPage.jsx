@@ -6,7 +6,7 @@ import AdminPageHeader from "../../components/admin/AdminPageHeader";
 import Loader from "../../components/common/Loader";
 import { formatCurrency, formatDateTime, getErrorMessage } from "../../utils/format";
 
-const toLocalInput = (value) => value ? new Date(value).toISOString().slice(0, 16) : "";
+const toLocalInput = (value) => value ? value.slice(0, 16) : "";
 const empty = { code: "", description: "", type: "PERCENT", value: "", minimumOrderValue: "0", maximumDiscount: "", startsAt: "", expiresAt: "", usageLimit: "", perUserLimit: 1, active: true };
 
 export default function AdminCouponsPage() {
@@ -33,8 +33,8 @@ export default function AdminCouponsPage() {
       maximumDiscount: form.maximumDiscount === "" ? null : Number(form.maximumDiscount),
       usageLimit: form.usageLimit === "" ? null : Number(form.usageLimit),
       perUserLimit: Number(form.perUserLimit),
-      startsAt: new Date(form.startsAt).toISOString().slice(0, 19),
-      expiresAt: new Date(form.expiresAt).toISOString().slice(0, 19),
+      startsAt: `${form.startsAt}:00`,
+      expiresAt: `${form.expiresAt}:00`,
     };
     try {
       if (editor.id) await adminApi.updateCoupon(editor.id, payload);

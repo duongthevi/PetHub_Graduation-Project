@@ -77,7 +77,7 @@ public class CouponService {
         if (subtotal == null || subtotal.signum() < 0) {
             throw BusinessException.badRequest("INVALID_SUBTOTAL", "Subtotal must not be negative");
         }
-        Coupon coupon = couponRepo.findByCodeIgnoreCase(normalize(code))
+        Coupon coupon = couponRepo.findByCodeForUpdate(normalize(code))
                 .orElseThrow(() -> new NotFoundException("Coupon not found"));
         LocalDateTime now = LocalDateTime.now();
         if (!coupon.isActive() || now.isBefore(coupon.getStartsAt()) || now.isAfter(coupon.getExpiresAt())) {

@@ -10,6 +10,7 @@ import com.dtvi.Pet.Ecommerce.exception.NotFoundException;
 import com.dtvi.Pet.Ecommerce.repository.CartItemRepo;
 import com.dtvi.Pet.Ecommerce.repository.CartRepo;
 import com.dtvi.Pet.Ecommerce.repository.ProductRepo;
+import com.dtvi.Pet.Ecommerce.repository.UserRepo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class CartService {
     private final CartRepo cartRepo;
     private final CartItemRepo cartItemRepo;
     private final ProductRepo productRepo;
+    private final UserRepo userRepo;
 
     @Transactional(readOnly = true)
     public CartResponse getCart(User user) {
@@ -34,12 +36,35 @@ public class CartService {
     }
 
     public CartResponse addItem(User user, CartItemRequest request) {
-        Product product = getPurchasableProduct(request.productId());
-        Cart cart = cartRepo.findByUserId(user.getId()).orElseGet(() -> createCart(user));
-        CartItem item = cartItemRepo.findByCartIdAndProductId(cart.getId(), product.getId())
+        User managedUser = userRepo.findByIdForUpdate(user.getId())
+                .orElseThrow(() ->
+                        new NotFoundException("User not found")
+                );
+
+        Product product =
+                getPurchasableProduct(request.productId());
+
+        Cart cart = cartRepo.findForUpdateByUserId(
+                        managedUser.getId()
+                )
+                .orElseGet(() -> createCart(managedUser));
+
+        CartItem item = cartItemRepo
+                .findForUpdateByCartAndProduct(
+                        cart.getId(),
+                        product.getId()
+                )
                 .orElseGet(() -> createItem(cart, product));
 
         int requestedQuantity = item.getQuantity() + request.quantity();
+
+        if (requestedQuantity > 99) {
+            throw BusinessException.badRequest(
+                    "INVALID_QUANTITY",
+                    "Total quantity of one product must not exceed 99"
+            );
+        }
+
         ensureStock(product, requestedQuantity);
         item.setQuantity(requestedQuantity);
         cartItemRepo.save(item);
@@ -47,6 +72,11 @@ public class CartService {
     }
 
     public CartResponse updateItem(User user, Long itemId, int quantity) {
+        userRepo.findByIdForUpdate(user.getId())
+            .orElseThrow(() ->
+                    new NotFoundException("User not found")
+            );
+
         if (quantity < 1 || quantity > 99) {
             throw BusinessException.badRequest("INVALID_QUANTITY", "Quantity must be between 1 and 99");
         }
@@ -66,10 +96,16 @@ public class CartService {
     }
 
     public void clear(User user) {
-        cartRepo.findWithItemsByUserId(user.getId()).ifPresent(cart -> {
-            cart.getItems().clear();
-            cartRepo.save(cart);
-        });
+        userRepo.findByIdForUpdate(user.getId())
+                .orElseThrow(() ->
+                        new NotFoundException("User not found")
+                );
+
+        cartRepo.findForUpdateByUserId(user.getId())
+                .ifPresent(cart -> {
+                    cart.getItems().clear();
+                    cartRepo.save(cart);
+                });
     }
 
     private Cart createCart(User user) {
@@ -83,11 +119,12 @@ public class CartService {
         item.setCart(cart);
         item.setProduct(product);
         item.setQuantity(0);
+        cart.getItems().add(item);
         return item;
     }
 
     private CartItem getOwnedItem(User user, Long itemId) {
-        CartItem item = cartItemRepo.findById(itemId)
+        CartItem item = cartItemRepo.findForUpdateById(itemId)
                 .orElseThrow(() -> new NotFoundException("Cart item not found"));
         if (!item.getCart().getUser().getId().equals(user.getId())) {
             throw BusinessException.forbidden("CART_ITEM_FORBIDDEN", "Cart item does not belong to this user");

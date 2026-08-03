@@ -35,7 +35,8 @@ public class ReviewService {
         return reviewRepo.findByProductIdAndStatus(
                         productId,
                         ReviewStatus.PUBLISHED,
-                        PageRequest.of(page, Math.min(size, 50), Sort.by(Sort.Direction.DESC, "createdAt"))
+                        PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 50)),
+                                Sort.by(Sort.Direction.DESC, "createdAt"))
                 )
                 .map(ReviewResponse::from);
     }

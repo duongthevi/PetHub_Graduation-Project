@@ -13,7 +13,12 @@ import com.dtvi.Pet.Ecommerce.exception.BusinessException;
 import com.dtvi.Pet.Ecommerce.repository.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.dtvi.Pet.Ecommerce.dto.commerce.ProductSummary;
@@ -131,16 +136,10 @@ public class RagChatService {
                 action
         );
 
-        if (intent == ChatIntent.CHECKOUT_CART) {
-                answer = "Mình sẽ chuyển bạn đến trang thanh toán "
-                        + "để kiểm tra đơn hàng và chọn COD hoặc VNPay.";
-        } else {
-                answer = aiClient.chat(turns);
-        }
-
         if (answer == null) {
         answer = aiClient.chat(turns);
         }
+        
         saveMessage(conversation, ChatRole.USER, request.question().trim());
         saveMessage(conversation, ChatRole.ASSISTANT, answer);
 
@@ -269,7 +268,7 @@ public class RagChatService {
                 .collect(Collectors.toCollection(HashSet::new));
 
         List<ProductMatch> matches =
-                productRepo.findTop20ByActiveTrueOrderBySoldCountDesc()
+                findProductCandidates(terms)
                         .stream()
                         .filter(Product::isActive)
                         .filter(product -> product.getQuantity() > 0)
@@ -311,11 +310,97 @@ public class RagChatService {
                 .toList();
     }
 
+    private List<Product> findProductCandidates(
+            Set<String> terms
+    ) {
+        if (terms.isEmpty()) {
+            return productRepo
+                    .findTop20ByActiveTrueOrderBySoldCountDesc();
+        }
+
+        Specification<Product> specification =
+                (root, criteriaQuery, builder) -> {
+                    criteriaQuery.distinct(true);
+
+                    List<Predicate> required =
+                            new ArrayList<>();
+
+                    required.add(builder.isTrue(root.get("active")));
+                    required.add(
+                            builder.greaterThan(
+                                    root.get("quantity"),
+                                    0
+                            )
+                    );
+
+                    var category = root.join(
+                            "category",
+                            JoinType.LEFT
+                    );
+
+                    List<Predicate> termPredicates =
+                            new ArrayList<>();
+
+                    for (String term : terms) {
+                        String pattern =
+                                "%" + term.toLowerCase(Locale.ROOT) + "%";
+
+                        termPredicates.add(builder.or(
+                                builder.like(
+                                        builder.lower(root.get("name")),
+                                        pattern
+                                ),
+                                builder.like(
+                                        builder.lower(root.get("sku")),
+                                        pattern
+                                ),
+                                builder.like(
+                                        builder.lower(root.get("brand")),
+                                        pattern
+                                ),
+                                builder.like(
+                                        builder.lower(root.get("description")),
+                                        pattern
+                                ),
+                                builder.like(
+                                        builder.lower(category.get("name")),
+                                        pattern
+                                )
+                        ));
+                    }
+
+                    required.add(
+                            builder.or(
+                                    termPredicates.toArray(
+                                            Predicate[]::new
+                                    )
+                            )
+                    );
+
+                    return builder.and(
+                            required.toArray(Predicate[]::new)
+                    );
+                };
+
+        return productRepo.findAll(
+                specification,
+                PageRequest.of(
+                        0,
+                        100,
+                        Sort.by(
+                                Sort.Direction.DESC,
+                                "soldCount"
+                        )
+                )
+        ).getContent();
+    }
+
     private int productScore(
         Product product,
         Set<String> terms
     ) {
         String name = normalizeText(product.getName());
+        String sku = normalizeText(product.getSku());
         String description =
                 normalizeText(product.getDescription());
         String brand = normalizeText(product.getBrand());
@@ -331,6 +416,10 @@ public class RagChatService {
 
                         if (name.contains(term)) {
                         score += 5;
+                        }
+
+                        if (sku.contains(term)) {
+                        score += 8;
                         }
 
                         if (category.contains(term)) {

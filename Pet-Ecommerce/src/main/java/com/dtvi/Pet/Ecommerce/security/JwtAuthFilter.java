@@ -17,6 +17,7 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.security.authentication.DisabledException;
 
 
 import java.io.IOException;
@@ -63,6 +64,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails userDetails = customUserDetailsService.loadUserByUsername(username);
+
+                if (!userDetails.isEnabled()) {
+                    reject(
+                            request,
+                            response,
+                            "ACCOUNT_DISABLED",
+                            "User account has been disabled",
+                            new DisabledException("User account has been disabled")
+                    );
+                    return;
+                }
 
                 if (!jwtUtils.isTokenValid(token, userDetails)) {
                     throw new IllegalArgumentException("JWT claims are invalid");

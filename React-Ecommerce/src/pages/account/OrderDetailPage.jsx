@@ -2,17 +2,20 @@ import { ArrowLeft, CreditCard, MapPin, PackageCheck, Phone, RotateCcw } from "l
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { orderApi } from "../../api/api";
+import { orderApi, refundApi } from "../../api/api";
 import Loader from "../../components/common/Loader";
 import EmptyState from "../../components/common/EmptyState";
 import StatusBadge from "../../components/common/StatusBadge";
 import { formatCurrency, formatDateTime, getErrorMessage } from "../../utils/format";
+import { REFUND_ENABLED } from "../../config/features";
 
 export default function OrderDetailPage() {
   const { orderId } = useParams();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [refundReason, setRefundReason] = useState("");
+  const [showRefundForm, setShowRefundForm] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -52,8 +55,44 @@ export default function OrderDetailPage() {
     && order.status === "PENDING_PAYMENT"
     && order.paymentStatus === "PENDING";
   const canCancel =
-    ["PENDING_PAYMENT", "PENDING"].includes(order.status)
+    order.status === "PENDING"
     && order.paymentStatus !== "PAID";
+  const canRequestRefund =
+    REFUND_ENABLED
+    && order.status === "DELIVERED"
+    && order.paymentStatus === "PAID"
+    && !order.refundStatus;
+
+  const requestRefund = async (event) => {
+    event.preventDefault();
+
+    if (!refundReason.trim()) {
+      toast.error("Vui lòng nhập lý do hoàn hàng");
+      return;
+    }
+
+    setProcessing(true);
+
+    try {
+      const response = await refundApi.request(order.id, refundReason.trim());
+      setOrder((current) => ({
+        ...current,
+        refundStatus: response.data.status,
+      }));
+      toast.success("Đã gửi yêu cầu hoàn hàng");
+      setShowRefundForm(false);
+      setRefundReason("");
+    } catch (error) {
+      toast.error(
+        getErrorMessage(
+          error,
+          "Không thể gửi yêu cầu hoàn hàng"
+        )
+      );
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   return (
     <div className="container order-detail-page">
@@ -70,11 +109,13 @@ export default function OrderDetailPage() {
         })}
       </section>
       {order.adminMessage && <div className="notice"><strong>Cập nhật từ cửa hàng:</strong> {order.adminMessage}</div>}
-      {order.paymentMethod === "VNPAY" && order.paymentStatus === "PAID" && (
-        <div className="notice">
-          <strong>VNPay đã xác nhận thanh toán.</strong>{" "}
-          Đơn đã thanh toán không thể hủy trực tiếp; nếu cần hủy, cửa hàng phải xử lý hoàn tiền.
-        </div>
+      {order.paymentMethod === "VNPAY"
+        && order.paymentStatus === "PAID" && (
+          <div className="notice">
+            <strong>VNPay đã xác nhận thanh toán.</strong>{" "}
+            Đơn đã thanh toán không thể hủy trực tiếp.
+            Vui lòng liên hệ cửa hàng nếu cần hỗ trợ đổi trả.
+          </div>
       )}
       <div className="order-detail__grid">
         <section className="card order-products">
@@ -90,8 +131,50 @@ export default function OrderDetailPage() {
       <div className="order-actions">
         {canPay && <button className="button button--primary" onClick={payAgain} disabled={processing}><CreditCard /> Thanh toán ngay</button>}
         {canCancel && <button className="button button--outline button--danger" onClick={cancelOrder} disabled={processing}><RotateCcw /> Hủy đơn hàng</button>}
+        {canRequestRefund && (
+          <button
+            className="button button--outline"
+            onClick={() => setShowRefundForm(true)}
+            disabled={processing}
+          >
+            Yêu cầu hoàn hàng
+          </button>
+        )}
+        {REFUND_ENABLED && order.refundStatus && (
+          <StatusBadge status={order.refundStatus} />
+        )}
         {order.status === "DELIVERED" && <Link className="button button--primary" to={`/products/${order.items[0]?.productId}#reviews`}><PackageCheck /> Đánh giá sản phẩm</Link>}
       </div>
+      {showRefundForm && (
+        <section className="card" style={{ marginTop: 16 }}>
+          <h2>Yêu cầu hoàn hàng</h2>
+          <form onSubmit={requestRefund}>
+            <label>
+              Lý do hoàn hàng
+              <textarea
+                rows="4"
+                value={refundReason}
+                onChange={(event) => setRefundReason(event.target.value)}
+                placeholder="Ví dụ: Sản phẩm không đúng mô tả..."
+                disabled={processing}
+              />
+            </label>
+            <div className="order-actions">
+              <button className="button button--primary" disabled={processing}>
+                {processing ? "Đang gửi..." : "Gửi yêu cầu"}
+              </button>
+              <button
+                type="button"
+                className="button button--outline"
+                onClick={() => setShowRefundForm(false)}
+                disabled={processing}
+              >
+                Hủy
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
     </div>
   );
 }

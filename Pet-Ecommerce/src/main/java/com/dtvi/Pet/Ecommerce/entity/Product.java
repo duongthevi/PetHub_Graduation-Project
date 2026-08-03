@@ -29,22 +29,34 @@ public class Product {
     private Long id;
 
     private String name;
+
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String description;
+
     private String imageUrl;
+
     @Column(unique = true, length = 80)
     private String sku;
+
     private String brand;
+
     @Column(name = "pet_type", length = 50)
     private String petType;
+
     private int quantity;
+
     @Column(nullable = false)
     private boolean active = true;
+
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal price;
+
     @Column(name = "sold_count", nullable = false)
     private long soldCount;
+
     @Column(name = "average_rating", precision = 3, scale = 2, nullable = false)
     private BigDecimal averageRating = BigDecimal.ZERO;
+    
     @Column(name = "review_count", nullable = false)
     private long reviewCount;
 

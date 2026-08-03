@@ -21,10 +21,18 @@ export default function ProductFormPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    return () => {
+      if (preview?.startsWith("blob:")) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [preview]);
+
+  useEffect(() => {
     catalogApi.categories().then((response) => setCategories(response.categoryList ?? []));
     if (editing) {
-      catalogApi.getById(productId).then((response) => {
-        const product = response.product;
+      adminApi.product(productId).then((response) => {
+        const product = response.data;
         setForm({ name: product.name || "", description: product.description || "", price: product.price || "", quantity: product.quantity ?? "", categoryId: product.category?.id || "", sku: product.sku || "", brand: product.brand || "", petType: product.petType || "DOG", active: product.active });
         setPreview(product.imageUrl || "");
       }).finally(() => setLoading(false));
@@ -34,6 +42,12 @@ export default function ProductFormPage() {
   const selectImage = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Ảnh không được vượt quá 5MB");
+      return;
+    }
+    
     setImage(file);
     setPreview(URL.createObjectURL(file));
   };

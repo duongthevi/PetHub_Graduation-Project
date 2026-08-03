@@ -17,11 +17,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -35,13 +38,17 @@ public class VnPayService {
     private final VnPaySigner signer;
     private final PaymentRepo paymentRepo;
     private final OrderService orderService;
+    private final RefundService refundService;
 
     public PaymentUrlResponse createPaymentUrl(User user, Long orderId, String clientIp) {
         requireConfigured();
         Order order = orderService.getOwnedVnpayOrder(user, orderId);
-        Payment payment = paymentRepo.findByProviderAndTransactionRef(
-                        PaymentProvider.VNPAY,
-                        order.getOrderCode()
+        Payment payment =
+            paymentRepo
+                .findTopByOrderIdAndProviderAndStatusOrderByCreatedAtDesc(
+                    order.getId(),
+                    PaymentProvider.VNPAY,
+                    PaymentStatus.PENDING
                 )
                 .orElseGet(() -> createPayment(order));
 
@@ -99,10 +106,15 @@ public class VnPayService {
         if (!amountMatches(payment.getAmount(), parameters.get("vnp_Amount"))) {
             return new VnPayIpnResponse("04", "Invalid amount");
         }
-        if (payment.getStatus() != PaymentStatus.PENDING) {
-            if (payment.getStatus() == PaymentStatus.PAID) {
-                orderService.markVnpayPaid(payment.getOrder());
-            }
+        boolean successful = "00".equals(parameters.get("vnp_ResponseCode"))
+                && "00".equals(parameters.get("vnp_TransactionStatus"));
+
+        if (payment.getStatus() == PaymentStatus.PAID) {
+            orderService.markVnpayPaid(payment.getOrder());
+            return new VnPayIpnResponse("02", "Order already confirmed");
+        }
+
+        if (!successful && payment.getStatus() != PaymentStatus.PENDING) {
             return new VnPayIpnResponse("02", "Order already confirmed");
         }
 
@@ -110,99 +122,162 @@ public class VnPayService {
         payment.setResponseCode(parameters.get("vnp_ResponseCode"));
         payment.setRawResponse(safeRawResponse(parameters));
 
-        boolean successful = "00".equals(parameters.get("vnp_ResponseCode"))
-                && "00".equals(parameters.get("vnp_TransactionStatus"));
         if (successful) {
             payment.setStatus(PaymentStatus.PAID);
             payment.setPaidAt(LocalDateTime.now());
-            orderService.markVnpayPaid(payment.getOrder());
+            payment.setProviderPaidAt(
+                parseVnPayDate(parameters.get("vnp_PayDate"))
+            );
+            if (payment.getOrder().getStatus()
+                    == com.dtvi.Pet.Ecommerce.enums.OrderStatus.CANCELLED) {
+                payment.getOrder().setPaymentStatus(PaymentStatus.PAID);
+                payment.getOrder().setAdminMessage(
+                        "VNPay payment arrived after cancellation; refund required"
+                );
+                refundService.createLatePaymentRefund(payment.getOrder());
+            } else {
+                orderService.markVnpayPaid(payment.getOrder());
+            }
         } else {
             payment.setStatus(PaymentStatus.FAILED);
-            orderService.cancelFailedOnlinePayment(
+            orderService.recordOnlinePaymentAttemptFailed(
                     payment.getOrder(),
-                    "VNPay failed with response code " + parameters.get("vnp_ResponseCode")
+                "VNPay attempt failed with response code "
+                    + parameters.get("vnp_ResponseCode")
             );
         }
         paymentRepo.save(payment);
         return new VnPayIpnResponse("00", "Confirm Success");
     }
 
-    public PaymentResultResponse verifyReturn(Map<String, String> parameters) {
+    public PaymentResultResponse verifyReturn(
+            Map<String, String> parameters
+    ) {
         if (!properties.isConfigured()) {
-            return new PaymentResultResponse(false, false, null, null, "VNPay is not configured");
+            return new PaymentResultResponse(
+                    false,
+                    false,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "VNPay is not configured"
+            );
         }
-        String transactionRef = parameters.get("vnp_TxnRef");
-        boolean signatureValid = signer.verify(parameters, properties.getHashSecret())
-                && properties.getTmnCode().equals(parameters.get("vnp_TmnCode"));
+
+        String transactionRef =
+                parameters.get("vnp_TxnRef");
+
+        boolean signatureValid =
+                signer.verify(
+                        parameters,
+                        properties.getHashSecret()
+                )
+                && properties.getTmnCode().equals(
+                        parameters.get("vnp_TmnCode")
+                );
+
         if (!signatureValid) {
             return new PaymentResultResponse(
                     false,
                     false,
+                    false,
+                    null,
+                    null,
                     transactionRef,
                     parameters.get("vnp_ResponseCode"),
                     "Invalid VNPay signature"
             );
         }
 
-        Payment candidate = paymentRepo.findByProviderAndTransactionRef(
-                        PaymentProvider.VNPAY,
-                        transactionRef
-                )
-                .orElse(null);
+        Payment candidate =
+                paymentRepo
+                        .findByProviderAndTransactionRef(
+                                PaymentProvider.VNPAY,
+                                transactionRef
+                        )
+                        .orElse(null);
+
         if (candidate == null) {
             return new PaymentResultResponse(
                     true,
                     false,
+                    false,
+                    null,
+                    null,
                     transactionRef,
                     parameters.get("vnp_ResponseCode"),
                     "Order was not found"
             );
         }
-        orderService.lockForPayment(candidate.getOrder().getId());
-        Payment payment = paymentRepo.findForUpdate(PaymentProvider.VNPAY, transactionRef)
-                .orElse(null);
-        if (payment == null || !amountMatches(payment.getAmount(), parameters.get("vnp_Amount"))) {
+
+        orderService.lockForPayment(
+                candidate.getOrder().getId()
+        );
+
+        Payment payment =
+                paymentRepo
+                        .findForUpdate(
+                                PaymentProvider.VNPAY,
+                                transactionRef
+                        )
+                        .orElse(null);
+
+        if (payment == null
+                || !amountMatches(
+                        payment.getAmount(),
+                        parameters.get("vnp_Amount")
+                )) {
             return new PaymentResultResponse(
                     true,
                     false,
+                    false,
+                    candidate.getOrder().getId(),
+                    candidate.getOrder().getOrderCode(),
                     transactionRef,
                     parameters.get("vnp_ResponseCode"),
                     "Payment amount is invalid"
             );
         }
 
-        boolean gatewaySuccessful = "00".equals(parameters.get("vnp_ResponseCode"))
-                && "00".equals(parameters.get("vnp_TransactionStatus"));
-        if (payment.getStatus() == PaymentStatus.PENDING) {
-            payment.setProviderTransactionNo(parameters.get("vnp_TransactionNo"));
-            payment.setResponseCode(parameters.get("vnp_ResponseCode"));
-            payment.setRawResponse(safeRawResponse(parameters));
-            if (gatewaySuccessful) {
-                payment.setStatus(PaymentStatus.PAID);
-                payment.setPaidAt(LocalDateTime.now());
-            } else {
-                payment.setStatus(PaymentStatus.FAILED);
-                orderService.cancelFailedOnlinePayment(
-                        payment.getOrder(),
-                        "VNPay failed with response code " + parameters.get("vnp_ResponseCode")
+        boolean gatewaySuccessful =
+                "00".equals(
+                        parameters.get("vnp_ResponseCode")
+                )
+                && "00".equals(
+                        parameters.get("vnp_TransactionStatus")
                 );
-            }
-            paymentRepo.save(payment);
+
+        boolean successful =
+                gatewaySuccessful
+                && payment.getStatus() == PaymentStatus.PAID;
+
+        boolean pending =
+                gatewaySuccessful
+                && payment.getStatus() == PaymentStatus.PENDING;
+
+        String message;
+
+        if (successful) {
+            message = "Payment successful";
+        } else if (pending) {
+            message =
+                    "VNPay accepted the payment; "
+                    + "waiting for IPN confirmation";
+        } else {
+            message = "Payment was not successful";
         }
 
-        if (gatewaySuccessful && payment.getStatus() == PaymentStatus.PAID) {
-            orderService.markVnpayPaid(payment.getOrder());
-        }
-
-        boolean successful = gatewaySuccessful && payment.getStatus() == PaymentStatus.PAID;
         return new PaymentResultResponse(
                 true,
                 successful,
+                pending,
+                payment.getOrder().getId(),
+                payment.getOrder().getOrderCode(),
                 transactionRef,
                 parameters.get("vnp_ResponseCode"),
-                successful
-                        ? "Payment successful"
-                        : "Payment was not successful or the order is no longer payable"
+                message
         );
     }
 
@@ -210,10 +285,29 @@ public class VnPayService {
         Payment payment = new Payment();
         payment.setOrder(order);
         payment.setProvider(PaymentProvider.VNPAY);
-        payment.setTransactionRef(order.getOrderCode());
+        payment.setTransactionRef(
+                order.getOrderCode()
+                        + "-"
+                        + UUID.randomUUID()
+                        .toString()
+                        .substring(0, 8)
+                        .toUpperCase(Locale.ROOT)
+        );
         payment.setAmount(order.getTotalPrice());
         payment.setStatus(PaymentStatus.PENDING);
         return paymentRepo.save(payment);
+    }
+
+    private LocalDateTime parseVnPayDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        try {
+            return LocalDateTime.parse(value, VNPAY_DATE);
+        } catch (DateTimeException exception) {
+            return null;
+        }
     }
 
     private boolean amountMatches(BigDecimal amount, String vnpAmount) {

@@ -21,10 +21,14 @@ import AdminProductsPage from "./pages/admin/AdminProductsPage";
 import ProductFormPage from "./pages/admin/ProductFormPage";
 import AdminCategoriesPage from "./pages/admin/AdminCategoriesPage";
 import AdminOrdersPage from "./pages/admin/AdminOrdersPage";
+import AdminRefundsPage from "./pages/admin/AdminRefundsPage";
 import AdminCouponsPage from "./pages/admin/AdminCouponsPage";
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import KnowledgeAdminPage from "./pages/admin/KnowledgeAdminPage";
+import AdminInventoryPage from "./pages/admin/AdminInventoryPage";
+import AdminAuditLogsPage from "./pages/admin/AdminAuditLogsPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import { REFUND_ENABLED } from "./config/features";
 
 export default function App() {
   return (
@@ -61,6 +65,14 @@ export default function App() {
           <Route path="products/:productId/edit" element={<ProductFormPage />} />
           <Route path="categories" element={<AdminCategoriesPage />} />
           <Route path="orders" element={<AdminOrdersPage />} />
+          {REFUND_ENABLED && (
+            <Route
+              path="refunds"
+              element={<AdminRefundsPage />}
+            />
+          )}
+          <Route path="inventory" element={<AdminInventoryPage />} />
+          <Route path="audit-logs" element={<AdminAuditLogsPage />} />
           <Route path="coupons" element={<AdminCouponsPage />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="knowledge" element={<KnowledgeAdminPage />} />

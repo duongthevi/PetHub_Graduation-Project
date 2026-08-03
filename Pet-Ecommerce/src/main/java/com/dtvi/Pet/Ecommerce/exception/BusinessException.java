@@ -26,4 +26,15 @@ public class BusinessException extends RuntimeException {
     public static BusinessException forbidden(String code, String message) {
         return new BusinessException(HttpStatus.FORBIDDEN, code, message);
     }
+
+    public static BusinessException tooManyRequests(
+            String code,
+            String message
+    ) {
+        return new BusinessException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                code,
+                message
+        );
+    }
 }

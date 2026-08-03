@@ -1,7 +1,7 @@
 package com.dtvi.Pet.Ecommerce.controller;
 
 import com.dtvi.Pet.Ecommerce.dto.Response;
-import com.dtvi.Pet.Ecommerce.exception.InvalidCredentialsException;
+import com.dtvi.Pet.Ecommerce.exception.BusinessException;
 import com.dtvi.Pet.Ecommerce.service.interf.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -35,7 +35,10 @@ public class ProductController {
         if (categoryId == null || image == null || image.isEmpty() || name == null || name.isBlank()
                 || description == null || description.isBlank() || price == null
                 || price.signum() <= 0 || price.stripTrailingZeros().scale() > 0 || quantity <= 0) {
-            throw new InvalidCredentialsException("All Fields are Required");
+            throw BusinessException.badRequest(
+                    "INVALID_PRODUCT_INPUT",
+                    "Product fields are missing or invalid"
+            );
         }
         return ResponseEntity.ok(productService.createProduct(
                 categoryId, image, name, description, price, quantity, sku, brand, petType
