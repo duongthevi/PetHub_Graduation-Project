@@ -26,13 +26,13 @@ const links = [
   { to: "/admin/products", label: "Sản phẩm", icon: Boxes },
   { to: "/admin/categories", label: "Danh mục", icon: Shapes },
   { to: "/admin/orders", label: "Đơn hàng", icon: ClipboardList },
-  (REFUND_ENABLED
-    ? [{
-        to: "/admin/refunds",
-        label: "Hoàn tiền",
-        icon: RotateCcw,
-      }]
-    : []),
+  ...(REFUND_ENABLED
+  ? [{
+      to: "/admin/refunds",
+      label: "Hoàn tiền",
+      icon: RotateCcw,
+    }]
+  : []),
   { to: "/admin/inventory", label: "Lịch sử tồn kho", icon: History },
   { to: "/admin/audit-logs", label: "Nhật ký quản trị", icon: ScrollText },
   { to: "/admin/coupons", label: "Mã giảm giá", icon: Percent },
