@@ -6,6 +6,7 @@ import com.dtvi.Pet.Ecommerce.dto.commerce.CouponResponse;
 import com.dtvi.Pet.Ecommerce.dto.commerce.CouponValidationResponse;
 import com.dtvi.Pet.Ecommerce.security.AuthUser;
 import com.dtvi.Pet.Ecommerce.service.impl.CouponService;
+import com.dtvi.Pet.Ecommerce.dto.commerce.AvailableCouponResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -59,6 +60,20 @@ public class CouponController {
         return ApiResponse.success(
                 "Coupon is valid",
                 couponService.validate(code, subtotal, authUser.getUser())
+        );
+    }
+
+    @GetMapping("/available")
+    public ApiResponse<List<AvailableCouponResponse>> getAvailableCoupons(
+            @AuthenticationPrincipal AuthUser authUser,
+            @RequestParam BigDecimal subtotal
+    ) {
+        return ApiResponse.success(
+                "Available coupons retrieved",
+                couponService.getAvailableCoupons(
+                        subtotal,
+                        authUser.getUser()
+                )
         );
     }
 }

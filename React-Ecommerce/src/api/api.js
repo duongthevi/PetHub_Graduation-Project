@@ -104,7 +104,18 @@ export const adminInventoryApi = {
 
 export const couponApi = {
   validate: (code, subtotal) =>
-    http.get("/coupons/validate", { params: { code, subtotal } }).then(unwrap),
+    http
+      .get("/coupons/validate", {
+        params: { code, subtotal },
+      })
+      .then(unwrap),
+
+  available: (subtotal) =>
+    http
+      .get("/coupons/available", {
+        params: { subtotal },
+      })
+      .then(unwrap),
 };
 
 export const reviewApi = {

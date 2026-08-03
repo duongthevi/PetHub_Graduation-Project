@@ -430,6 +430,73 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .coupon-box button { border: 0; padding: 0 13px; border-radius: 0 10px 10px 0; background: var(--green-100); color: var(--green-800); font-size: .72rem; font-weight: 800; }
 .coupon-success { display: flex; align-items: center; gap: 5px; color: var(--success); font-size: .7rem; font-weight: 700; }
 .coupon-success svg { width: 16px; }
+.available-coupons {
+  margin: 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.available-coupons > strong {
+  color: var(--ink);
+  font-size: .75rem;
+}
+
+.available-coupons > small {
+  color: var(--muted);
+  font-size: .68rem;
+}
+
+.available-coupons > button {
+  width: 100%;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 10px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #fffaf3;
+  color: var(--ink);
+  text-align: left;
+}
+
+.available-coupons > button:hover,
+.available-coupons > button.is-selected {
+  border-color: var(--orange);
+  background: #fff3df;
+}
+
+.available-coupons > button span {
+  min-width: 0;
+}
+
+.available-coupons > button b,
+.available-coupons > button small {
+  display: block;
+}
+
+.available-coupons > button b {
+  color: var(--green-800);
+  font-size: .76rem;
+}
+
+.available-coupons > button small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: .63rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.available-coupons > button em {
+  flex: none;
+  color: var(--success);
+  font-size: .7rem;
+  font-style: normal;
+  font-weight: 800;
+}
 .checkout-terms { margin-top: 12px; display: block; color: var(--muted); font-size: .62rem; line-height: 1.5; text-align: center; }
 
 .account-layout { padding-top: 55px; display: grid; grid-template-columns: 235px 1fr; align-items: start; gap: 35px; }

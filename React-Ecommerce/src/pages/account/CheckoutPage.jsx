@@ -20,6 +20,8 @@ export default function CheckoutPage() {
   const { cart, loading: cartLoading, refreshCart } = useCart();
   const [form, setForm] = useState(emptyForm);
   const [coupon, setCoupon] = useState(null);
+  const [availableCoupons, setAvailableCoupons] = useState([]);
+  const [loadingCoupons, setLoadingCoupons] = useState(false);
   const [checkingCoupon, setCheckingCoupon] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
@@ -39,6 +41,41 @@ export default function CheckoutPage() {
     });
   }, []);
 
+  useEffect(() => {
+    const subtotal = Number(cart.subtotal ?? 0);
+
+    if (subtotal <= 0) {
+      setAvailableCoupons([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    setLoadingCoupons(true);
+
+    couponApi
+      .available(subtotal)
+      .then((response) => {
+        if (!cancelled) {
+          setAvailableCoupons(response.data ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAvailableCoupons([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingCoupons(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cart.subtotal]);
+
   const shippingFee = useMemo(
     () => Number(cart.subtotal ?? 0) >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE,
     [cart.subtotal],
@@ -48,17 +85,46 @@ export default function CheckoutPage() {
     [coupon, cart.subtotal, shippingFee],
   );
 
-  const applyCoupon = async () => {
-    if (!form.couponCode.trim()) return;
+  const applyCoupon = async (
+    selectedCode = form.couponCode,
+  ) => {
+    const code = String(selectedCode ?? "")
+      .trim()
+      .toUpperCase();
+
+    if (!code) {
+      toast.error("Vui lòng chọn hoặc nhập mã giảm giá");
+      return;
+    }
+
     setCheckingCoupon(true);
+
+    setForm((current) => ({
+      ...current,
+      couponCode: code,
+    }));
+
     try {
-      const response = await couponApi.validate(form.couponCode.trim(), cart.subtotal);
+      const response = await couponApi.validate(
+        code,
+        cart.subtotal,
+      );
+
       setCoupon(response.data);
+
       toast.success(`Đã áp dụng mã ${response.data.code}`);
     } catch (error) {
       setCoupon(null);
-      toast.error(getErrorMessage(error, "Mã giảm giá không hợp lệ"));
-    } finally { setCheckingCoupon(false); }
+
+      toast.error(
+        getErrorMessage(
+          error,
+          "Mã giảm giá không hợp lệ",
+        ),
+      );
+    } finally {
+      setCheckingCoupon(false);
+    }
   };
 
   const submit = async (event) => {
@@ -73,8 +139,7 @@ export default function CheckoutPage() {
     const response = await orderApi.checkout(
       {
         ...form,
-        couponCode:
-          form.couponCode.trim() || null,
+        couponCode: coupon?.code || null,
       },
       idempotencyKeyRef.current,
     );
@@ -162,7 +227,80 @@ export default function CheckoutPage() {
       <aside className="order-summary card checkout-summary">
         <h2>Đơn hàng ({cart.totalItems})</h2>
         <div className="summary-products">{cart.items.map((item) => <div key={item.id}><span><img src={item.product.imageUrl || "/product-placeholder.svg"} alt="" /><i>{item.quantity}</i></span><p>{item.product.name}</p><strong>{formatCurrency(item.lineTotal)}</strong></div>)}</div>
-        <div className="coupon-box"><input value={form.couponCode} onChange={(e) => { setForm({ ...form, couponCode: e.target.value.toUpperCase() }); setCoupon(null); }} placeholder="Mã giảm giá" /><button type="button" onClick={applyCoupon} disabled={checkingCoupon}>{checkingCoupon ? "..." : "Áp dụng"}</button></div>
+        <div className="coupon-box">
+          <input
+            value={form.couponCode}
+            onChange={(event) => {
+              setForm((current) => ({
+                ...current,
+                couponCode:
+                  event.target.value.toUpperCase(),
+              }));
+
+              setCoupon(null);
+            }}
+            placeholder="Mã giảm giá"
+          />
+
+          <button
+            type="button"
+            onClick={() => applyCoupon()}
+            disabled={checkingCoupon}
+          >
+            {checkingCoupon ? "..." : "Áp dụng"}
+          </button>
+        </div>
+
+        <div className="available-coupons">
+          <strong>Ưu đãi khả dụng</strong>
+
+          {loadingCoupons && (
+            <small>Đang tải ưu đãi...</small>
+          )}
+
+          {!loadingCoupons
+            && availableCoupons.length === 0 && (
+              <small>
+                Chưa có mã ưu đãi phù hợp với đơn hàng.
+              </small>
+          )}
+
+          {availableCoupons.map((item) => (
+            <button
+              type="button"
+              key={item.code}
+              className={
+                coupon?.code === item.code
+                  ? "is-selected"
+                  : ""
+              }
+              onClick={() => applyCoupon(item.code)}
+              disabled={checkingCoupon}
+            >
+              <span>
+                <b>{item.code}</b>
+
+                <small>
+                  {item.description
+                    || (item.type === "PERCENT"
+                      ? `Giảm ${item.value}%`
+                      : `Giảm ${formatCurrency(item.value)}`)}
+                </small>
+              </span>
+
+              <em>
+                −{formatCurrency(item.discount)}
+              </em>
+            </button>
+          ))}
+        </div>
+
+        {coupon && (
+          <p className="coupon-success">
+            <BadgeCheck />
+            Tiết kiệm {formatCurrency(coupon.discount)}
+          </p>
+        )}
         {coupon && <p className="coupon-success"><BadgeCheck /> Tiết kiệm {formatCurrency(coupon.discount)}</p>}
         <dl><dt>Tạm tính</dt><dd>{formatCurrency(cart.subtotal)}</dd><dt>Phí vận chuyển</dt><dd>{shippingFee === 0 ? "Miễn phí" : formatCurrency(shippingFee)}</dd>{coupon && <><dt>Giảm giá</dt><dd className="text-success">−{formatCurrency(coupon.discount)}</dd></>}</dl>
         <div className="order-summary__total"><span>Tổng thanh toán</span><strong>{formatCurrency(total)}</strong></div>

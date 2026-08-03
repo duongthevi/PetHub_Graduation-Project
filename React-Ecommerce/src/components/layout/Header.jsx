@@ -11,7 +11,12 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import {
+  Link,
+  NavLink,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
@@ -22,6 +27,17 @@ export default function Header() {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
   const { cartCount } = useCart();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const petType = new URLSearchParams(
+    location.search,
+  ).get("petType");
+
+  const isProductsPage =
+    location.pathname === "/products";
+
+  const isProductDetail =
+    location.pathname.startsWith("/products/");
 
   const submitSearch = (event) => {
     event.preventDefault();
@@ -106,9 +122,42 @@ export default function Header() {
         <nav className={`main-nav ${menuOpen ? "is-open" : ""}`}>
           <div className="container main-nav__inner">
             <NavLink to="/" end onClick={() => setMenuOpen(false)}>Trang chủ</NavLink>
-            <NavLink to="/products" onClick={() => setMenuOpen(false)}>Sản phẩm</NavLink>
-            <NavLink to="/products?petType=DOG" onClick={() => setMenuOpen(false)}>Dành cho chó</NavLink>
-            <NavLink to="/products?petType=CAT" onClick={() => setMenuOpen(false)}>Dành cho mèo</NavLink>
+            <Link
+              to="/products"
+              className={
+                (isProductsPage && !petType)
+                  || isProductDetail
+                  ? "active"
+                  : ""
+              }
+              onClick={() => setMenuOpen(false)}
+            >
+              Sản phẩm
+            </Link>
+
+            <Link
+              to="/products?petType=DOG"
+              className={
+                isProductsPage && petType === "DOG"
+                  ? "active"
+                  : ""
+              }
+              onClick={() => setMenuOpen(false)}
+            >
+              Dành cho chó
+            </Link>
+
+            <Link
+              to="/products?petType=CAT"
+              className={
+                isProductsPage && petType === "CAT"
+                  ? "active"
+                  : ""
+              }
+              onClick={() => setMenuOpen(false)}
+            >
+              Dành cho mèo
+            </Link>
             {!isAdmin && isAuthenticated && (
               <NavLink to="/orders" onClick={() => setMenuOpen(false)}>Theo dõi đơn</NavLink>
             )}

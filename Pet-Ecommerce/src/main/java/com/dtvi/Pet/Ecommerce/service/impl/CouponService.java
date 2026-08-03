@@ -12,6 +12,7 @@ import com.dtvi.Pet.Ecommerce.exception.BusinessException;
 import com.dtvi.Pet.Ecommerce.exception.NotFoundException;
 import com.dtvi.Pet.Ecommerce.repository.CouponRepo;
 import com.dtvi.Pet.Ecommerce.repository.CouponUsageRepo;
+import com.dtvi.Pet.Ecommerce.dto.commerce.AvailableCouponResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,36 +68,99 @@ public class CouponService {
     }
 
     @Transactional(readOnly = true)
-    public CouponValidationResponse validate(String code, BigDecimal subtotal, User user) {
-        Coupon coupon = requireValid(code, subtotal, user);
-        BigDecimal discount = calculateDiscount(coupon, subtotal);
-        return new CouponValidationResponse(coupon.getCode(), subtotal, discount, subtotal.subtract(discount));
+    public CouponValidationResponse validate(
+            String code,
+            BigDecimal subtotal,
+            User user
+    ) {
+        Coupon coupon = couponRepo
+                .findByCodeIgnoreCase(normalize(code))
+                .orElseThrow(() ->
+                        new NotFoundException("Coupon not found")
+                );
+
+        validateCouponRules(coupon, subtotal, user);
+
+        BigDecimal discount =
+                calculateDiscount(coupon, subtotal);
+
+        return new CouponValidationResponse(
+                coupon.getCode(),
+                subtotal,
+                discount,
+                subtotal.subtract(discount)
+        );
     }
 
-    public Coupon requireValid(String code, BigDecimal subtotal, User user) {
+    public Coupon requireValid(
+            String code,
+            BigDecimal subtotal,
+            User user
+    ) {
+        Coupon coupon = couponRepo
+                .findByCodeForUpdate(normalize(code))
+                .orElseThrow(() ->
+                        new NotFoundException("Coupon not found")
+                );
+
+        validateCouponRules(coupon, subtotal, user);
+
+        return coupon;
+    }
+
+    private void validateCouponRules(
+            Coupon coupon,
+            BigDecimal subtotal,
+            User user
+    ) {
         if (subtotal == null || subtotal.signum() < 0) {
-            throw BusinessException.badRequest("INVALID_SUBTOTAL", "Subtotal must not be negative");
+            throw BusinessException.badRequest(
+                    "INVALID_SUBTOTAL",
+                    "Subtotal must not be negative"
+            );
         }
-        Coupon coupon = couponRepo.findByCodeForUpdate(normalize(code))
-                .orElseThrow(() -> new NotFoundException("Coupon not found"));
+
         LocalDateTime now = LocalDateTime.now();
-        if (!coupon.isActive() || now.isBefore(coupon.getStartsAt()) || now.isAfter(coupon.getExpiresAt())) {
-            throw BusinessException.badRequest("COUPON_NOT_ACTIVE", "Coupon is not active");
+
+        if (!coupon.isActive()
+                || now.isBefore(coupon.getStartsAt())
+                || now.isAfter(coupon.getExpiresAt())) {
+            throw BusinessException.badRequest(
+                    "COUPON_NOT_ACTIVE",
+                    "Coupon is not active"
+            );
         }
-        if (subtotal.compareTo(coupon.getMinimumOrderValue()) < 0) {
+
+        if (subtotal.compareTo(
+                coupon.getMinimumOrderValue()
+        ) < 0) {
             throw BusinessException.badRequest(
                     "MINIMUM_ORDER_NOT_REACHED",
                     "Order does not reach the coupon's minimum value"
             );
         }
-        if (coupon.getUsageLimit() != null && coupon.getUsedCount() >= coupon.getUsageLimit()) {
-            throw BusinessException.badRequest("COUPON_USAGE_EXHAUSTED", "Coupon usage limit has been reached");
+
+        if (coupon.getUsageLimit() != null
+                && coupon.getUsedCount()
+                >= coupon.getUsageLimit()) {
+            throw BusinessException.badRequest(
+                    "COUPON_USAGE_EXHAUSTED",
+                    "Coupon usage limit has been reached"
+            );
         }
-        long userUsage = couponUsageRepo.countByCouponIdAndUserId(coupon.getId(), user.getId());
+
+        long userUsage =
+                couponUsageRepo.countByCouponIdAndUserId(
+                        coupon.getId(),
+                        user.getId()
+                );
+
         if (userUsage >= coupon.getPerUserLimit()) {
-            throw BusinessException.badRequest("COUPON_USER_LIMIT", "You have reached the coupon usage limit");
+            throw BusinessException.badRequest(
+                    "COUPON_USER_LIMIT",
+                    "You have reached the coupon usage limit"
+            );
         }
-        return coupon;
     }
 
     public BigDecimal calculateDiscount(Coupon coupon, BigDecimal subtotal) {
@@ -156,5 +220,51 @@ public class CouponService {
             throw BusinessException.badRequest("COUPON_CODE_REQUIRED", "Coupon code is required");
         }
         return code.trim().toUpperCase(Locale.ROOT);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AvailableCouponResponse> getAvailableCoupons(
+            BigDecimal subtotal,
+            User user
+    ) {
+        if (subtotal == null || subtotal.signum() < 0) {
+            throw BusinessException.badRequest(
+                    "INVALID_SUBTOTAL",
+                    "Subtotal must not be negative"
+            );
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        return couponRepo
+                .findAvailableCoupons(subtotal, now)
+                .stream()
+                .filter(coupon -> {
+                    long userUsage =
+                            couponUsageRepo
+                                    .countByCouponIdAndUserId(
+                                            coupon.getId(),
+                                            user.getId()
+                                    );
+
+                    return userUsage < coupon.getPerUserLimit();
+                })
+                .map(coupon -> {
+                    BigDecimal discount =
+                            calculateDiscount(coupon, subtotal);
+
+                    return new AvailableCouponResponse(
+                            coupon.getCode(),
+                            coupon.getDescription(),
+                            coupon.getType(),
+                            coupon.getValue(),
+                            coupon.getMinimumOrderValue(),
+                            coupon.getMaximumDiscount(),
+                            discount,
+                            subtotal.subtract(discount),
+                            coupon.getExpiresAt()
+                    );
+                })
+                .toList();
     }
 }
