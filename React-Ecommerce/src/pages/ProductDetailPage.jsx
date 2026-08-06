@@ -25,6 +25,13 @@ export default function ProductDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const loadProduct = () =>
+  catalogApi
+    .getById(productId)
+    .then((response) => {
+      setProduct(response.product);
+    });
+
   const loadReviews = (page = 0) =>
     reviewApi.list(productId, { page, size: 5 })
       .then((response) => setReviews(response.data));
@@ -84,7 +91,10 @@ export default function ProductDetailPage() {
     try {
       await reviewApi.create(product.id, reviewForm);
       setReviewForm({ rating: 5, comment: "" });
-      await loadReviews(0);
+      await Promise.all([
+        loadProduct(),
+        loadReviews(0),
+      ]);
       toast.success("Cảm ơn bạn đã đánh giá sản phẩm");
     } catch (error) {
       toast.error(getErrorMessage(error, "Chỉ khách đã nhận hàng mới có thể đánh giá"));
@@ -97,7 +107,10 @@ export default function ProductDetailPage() {
     if (!window.confirm("Bạn muốn xóa đánh giá này?")) return;
     try {
       await reviewApi.remove(reviewId);
-      await loadReviews(reviews.number);
+      await Promise.all([
+        loadProduct(),
+        loadReviews(reviews.number),
+      ]);
       toast.success("Đã xóa đánh giá");
     } catch (error) {
       toast.error(getErrorMessage(error));
