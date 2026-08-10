@@ -1,17 +1,21 @@
+import { useState } from "react";
 import { Heart, ShoppingBag, Star } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
-import { wishlistApi } from "../../api/api";
 import { formatCurrency } from "../../utils/format";
+import { useWishlist } from "../../context/WishlistContext";
 
 export default function ProductCard({ product, onWishlistChange }) {
+  const [wishlistLoading, setWishlistLoading] = useState(false);
   const { isAuthenticated, isAdmin } = useAuth();
   const { addItem } = useCart();
+  const { isFavorite: checkFavorite, addFavorite, removeFavorite } = useWishlist();
   const navigate = useNavigate();
   const location = useLocation();
   const stock = product.quantity ?? product.stock ?? 0;
+  const isFavorite = checkFavorite(product.id);
 
   const requireUser = () => {
     if (!isAuthenticated) {
@@ -35,14 +39,22 @@ export default function ProductCard({ product, onWishlistChange }) {
     }
   };
 
-  const addToWishlist = async () => {
-    if (!requireUser()) return;
+  const toggleWishlist = async () => {
+    if (!requireUser() || wishlistLoading) return;
+    setWishlistLoading(true);
     try {
-      await wishlistApi.add(product.id);
-      toast.success("Đã thêm vào danh sách yêu thích");
-      onWishlistChange?.(product.id);
+      if (isFavorite) {
+        await removeFavorite(product.id);
+        toast.success("Đã xóa khỏi danh sách yêu thích");
+      } else {
+        await addFavorite(product.id);
+        toast.success("Đã thêm vào danh sách yêu thích");
+      }
+      onWishlistChange?.(product.id, !isFavorite);
     } catch (error) {
-      toast.error(error.response?.data?.message || "Sản phẩm đã có trong yêu thích");
+      toast.error(error.response?.data?.message || "Không thể cập nhật danh sách yêu thích");
+    } finally {
+      setWishlistLoading(false);
     }
   };
 
@@ -52,8 +64,14 @@ export default function ProductCard({ product, onWishlistChange }) {
         <Link to={`/products/${product.id}`}>
           <img src={product.imageUrl || "/product-placeholder.svg"} alt={product.name} />
         </Link>
-        <button className="product-card__heart" onClick={addToWishlist} aria-label="Yêu thích">
-          <Heart size={19} />
+        <button
+          className={`product-card__heart${isFavorite ? " is-favorite" : ""}`}
+          onClick={toggleWishlist}
+          disabled={wishlistLoading}
+          aria-label={isFavorite ? "Xóa khỏi yêu thích" : "Thêm vào yêu thích"}
+          aria-pressed={isFavorite}
+        >
+          <Heart size={19} fill={isFavorite ? "currentColor" : "none"} />
         </button>
         {stock <= 0 && <span className="product-card__badge">Hết hàng</span>}
       </div>

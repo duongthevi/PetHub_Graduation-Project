@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { Check, ChevronRight, Heart, Minus, Plus, ShieldCheck, ShoppingBag, Star, Truck } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { catalogApi, reviewApi, wishlistApi } from "../api/api";
+import { catalogApi, reviewApi } from "../api/api";
 import Loader from "../components/common/Loader";
 import EmptyState from "../components/common/EmptyState";
 import Pagination from "../components/common/Pagination";
 import ProductCard from "../components/store/ProductCard";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import { useWishlist } from "../context/WishlistContext";
 import { formatCurrency, formatDateTime, getErrorMessage } from "../utils/format";
 
 export default function ProductDetailPage() {
@@ -20,8 +21,10 @@ export default function ProductDetailPage() {
   const [quantity, setQuantity] = useState(1);
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
   const [submitting, setSubmitting] = useState(false);
+  const [wishlistLoading, setWishlistLoading] = useState(false);
   const { isAuthenticated, isAdmin, user } = useAuth();
   const { addItem } = useCart();
+  const { isFavorite: checkFavorite, addFavorite, removeFavorite } = useWishlist();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -75,12 +78,20 @@ export default function ProductDetailPage() {
   };
 
   const handleWishlist = async () => {
-    if (!requireUser()) return;
+    if (!requireUser() || wishlistLoading) return;
+    setWishlistLoading(true);
     try {
-      await wishlistApi.add(product.id);
-      toast.success("Đã lưu vào danh sách yêu thích");
+      if (isFavorite) {
+        await removeFavorite(product.id);
+        toast.success("Đã xóa khỏi danh sách yêu thích");
+      } else {
+        await addFavorite(product.id);
+        toast.success("Đã lưu vào danh sách yêu thích");
+      }
     } catch (error) {
-      toast.error(getErrorMessage(error, "Sản phẩm đã có trong yêu thích"));
+      toast.error(getErrorMessage(error, "Không thể cập nhật danh sách yêu thích"));
+    } finally {
+      setWishlistLoading(false);
     }
   };
 
@@ -123,6 +134,7 @@ export default function ProductDetailPage() {
   }
 
   const stock = product.quantity ?? 0;
+  const isFavorite = checkFavorite(product.id);
 
   return (
     <div className="container product-detail-page">
@@ -158,7 +170,15 @@ export default function ProductDetailPage() {
             <button className="button button--primary" onClick={handleCart} disabled={stock <= 0}>
               <ShoppingBag /> Thêm vào giỏ hàng
             </button>
-            <button className="button button--outline button--icon" onClick={handleWishlist} aria-label="Thêm yêu thích"><Heart /></button>
+            <button
+              className={`button button--outline button--icon wishlist-button${isFavorite ? " is-favorite" : ""}`}
+              onClick={handleWishlist}
+              disabled={wishlistLoading}
+              aria-label={isFavorite ? "Xóa khỏi yêu thích" : "Thêm yêu thích"}
+              aria-pressed={isFavorite}
+            >
+              <Heart fill={isFavorite ? "currentColor" : "none"} />
+            </button>
           </div>
           <div className="product-assurances">
             <span><Truck /><span><strong>Giao hàng nhanh</strong>Toàn quốc</span></span>

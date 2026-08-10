@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Heart,
   LayoutDashboard,
@@ -20,14 +20,28 @@ import {
 import toast from "react-hot-toast";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
+import { catalogApi } from "../../api/api";
+import { formatCurrency } from "../../utils/format";
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const searchRef = useRef(null);
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
   const { cartCount } = useCart();
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    const urlQuery = location.pathname === "/products"
+      ? new URLSearchParams(location.search).get("q") || ""
+      : "";
+    setQuery(urlQuery);
+  }, [location.pathname, location.search]);
 
   const petType = new URLSearchParams(
     location.search,
@@ -39,10 +53,74 @@ export default function Header() {
   const isProductDetail =
     location.pathname.startsWith("/products/");
 
+  useEffect(() => {
+    const keyword = query.trim();
+    if (keyword.length < 2) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      setSuggestionsLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    setSuggestionsOpen(true);
+    setSuggestionsLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await catalogApi.search({ q: keyword, page: 0, size: 6 });
+        if (!active) return;
+        setSuggestions(response.data?.content ?? []);
+        setSuggestionsOpen(true);
+        setActiveSuggestion(-1);
+      } catch {
+        if (active) setSuggestions([]);
+      } finally {
+        if (active) setSuggestionsLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
+  useEffect(() => {
+    const closeSuggestions = (event) => {
+      if (!searchRef.current?.contains(event.target)) setSuggestionsOpen(false);
+    };
+    document.addEventListener("mousedown", closeSuggestions);
+    return () => document.removeEventListener("mousedown", closeSuggestions);
+  }, []);
+
   const submitSearch = (event) => {
     event.preventDefault();
     navigate(`/products${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`);
+    setSuggestionsOpen(false);
     setMenuOpen(false);
+  };
+
+  const openProduct = (productId) => {
+    setSuggestionsOpen(false);
+    navigate(`/products/${productId}`);
+  };
+
+  const handleSearchKeyDown = (event) => {
+    if (!suggestionsOpen || suggestions.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveSuggestion((current) => (current + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveSuggestion((current) =>
+        current <= 0 ? suggestions.length - 1 : current - 1,
+      );
+    } else if (event.key === "Enter" && activeSuggestion >= 0) {
+      event.preventDefault();
+      openProduct(suggestions[activeSuggestion].id);
+    } else if (event.key === "Escape") {
+      setSuggestionsOpen(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -63,15 +141,47 @@ export default function Header() {
             <span><strong>Pet</strong>Hub<small>Yêu thương mỗi ngày</small></span>
           </Link>
 
-          <form className="header-search" onSubmit={submitSearch}>
+          <form className="header-search" onSubmit={submitSearch} ref={searchRef}>
             <Search size={19} />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onFocus={() => query.trim().length >= 2 && setSuggestionsOpen(true)}
+              onKeyDown={handleSearchKeyDown}
               placeholder="Tìm thức ăn, phụ kiện, thương hiệu..."
               aria-label="Tìm kiếm sản phẩm"
+              aria-expanded={suggestionsOpen}
+              aria-controls="header-search-suggestions"
+              autoComplete="off"
             />
             <button type="submit">Tìm kiếm</button>
+            {suggestionsOpen && (
+              <div className="search-suggestions" id="header-search-suggestions">
+                {suggestionsLoading ? (
+                  <p className="search-suggestions__status">Đang tìm sản phẩm...</p>
+                ) : suggestions.length ? (
+                  <>
+                    {suggestions.map((product, index) => (
+                      <button
+                        type="button"
+                        className={`search-suggestion${index === activeSuggestion ? " is-active" : ""}`}
+                        key={product.id}
+                        onMouseEnter={() => setActiveSuggestion(index)}
+                        onClick={() => openProduct(product.id)}
+                      >
+                        <img src={product.imageUrl || "/product-placeholder.svg"} alt="" />
+                        <span><strong>{product.name}</strong><small>{formatCurrency(product.price)}</small></span>
+                      </button>
+                    ))}
+                    <button type="submit" className="search-suggestions__all">
+                      Xem tất cả kết quả cho “{query.trim()}”
+                    </button>
+                  </>
+                ) : (
+                  <p className="search-suggestions__status">Không tìm thấy sản phẩm phù hợp</p>
+                )}
+              </div>
+            )}
           </form>
 
           <div className="header-actions">

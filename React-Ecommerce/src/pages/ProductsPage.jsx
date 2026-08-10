@@ -12,16 +12,21 @@ const INITIAL_PAGE = { content: [], number: 0, totalPages: 0, totalElements: 0 }
 
 export default function ProductsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const committedQuery = searchParams.get("q") || "";
   const [pageData, setPageData] = useState(INITIAL_PAGE);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [draftQuery, setDraftQuery] = useState(searchParams.get("q") || "");
+  const [draftQuery, setDraftQuery] = useState(committedQuery);
+
+  useEffect(() => {
+    setDraftQuery(committedQuery);
+  }, [committedQuery]);
 
   const params = useMemo(
     () => ({
-      q: searchParams.get("q") || undefined,
+      q: committedQuery || undefined,
       categoryId: searchParams.get("categoryId") || undefined,
       petType: searchParams.get("petType") || undefined,
       minPrice: searchParams.get("minPrice") || undefined,
@@ -31,7 +36,7 @@ export default function ProductsPage() {
       sortBy: searchParams.get("sortBy") || "id",
       direction: searchParams.get("direction") || "desc",
     }),
-    [searchParams],
+    [searchParams, committedQuery],
   );
 
   useEffect(() => {
