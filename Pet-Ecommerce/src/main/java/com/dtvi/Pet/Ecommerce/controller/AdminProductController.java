@@ -23,6 +23,7 @@ public class AdminProductController {
     @GetMapping
     public ApiResponse<Page<ProductDto>> search(
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) Boolean lowStock,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
@@ -32,6 +33,7 @@ public class AdminProductController {
                 "Products retrieved",
                 productCatalogService.searchAdmin(
                         q,
+                        lowStock,
                         page,
                         size,
                         sortBy,

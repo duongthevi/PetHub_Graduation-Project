@@ -27,6 +27,7 @@ import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import KnowledgeAdminPage from "./pages/admin/KnowledgeAdminPage";
 import AdminInventoryPage from "./pages/admin/AdminInventoryPage";
 import AdminAuditLogsPage from "./pages/admin/AdminAuditLogsPage";
+import AdminReviewsPage from "./pages/admin/AdminReviewsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import { REFUND_ENABLED } from "./config/features";
 
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="audit-logs" element={<AdminAuditLogsPage />} />
           <Route path="coupons" element={<AdminCouponsPage />} />
           <Route path="users" element={<AdminUsersPage />} />
+          <Route path="reviews" element={<AdminReviewsPage />} />
           <Route path="knowledge" element={<KnowledgeAdminPage />} />
         </Route>
       </Route>

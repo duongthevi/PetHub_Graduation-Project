@@ -203,6 +203,7 @@ export default function ProductDetailPage() {
                 </div>
                 {review.verifiedPurchase && <span className="verified"><Check /> Đã mua hàng</span>}
                 <p>{review.comment}</p>
+                {review.adminReply && <div className="admin-reply"><strong>Phản hồi từ PetHub</strong><p>{review.adminReply}</p><small>{formatDateTime(review.repliedAt)}</small></div>}
                 {user?.id === review.userId && <button className="text-button text-danger" onClick={() => removeReview(review.id)}>Xóa đánh giá</button>}
               </article>
             )) : <EmptyState title="Chưa có đánh giá" description="Hãy là người đầu tiên chia sẻ trải nghiệm." />}

@@ -20,6 +20,7 @@ public interface ProductCatalogService {
 
     Page<ProductDto> searchAdmin(
             String query,
+            Boolean lowStock,
             int page,
             int size,
             String sortBy,

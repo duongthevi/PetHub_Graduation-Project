@@ -128,6 +128,13 @@ export const reviewApi = {
   remove: (reviewId) => http.delete(`/reviews/${reviewId}`).then(unwrap),
 };
 
+export const adminReviewApi = {
+  list: (params) => http.get("/reviews/admin", { params }).then(unwrap),
+  statistics: () => http.get("/reviews/admin/statistics").then(unwrap),
+  reply: (reviewId, reply) => http.put(`/reviews/admin/${reviewId}/reply`, { reply }).then(unwrap),
+  remove: (reviewId) => http.delete(`/reviews/admin/${reviewId}`).then(unwrap),
+};
+
 export const ragApi = {
   chat: (body) =>
     http

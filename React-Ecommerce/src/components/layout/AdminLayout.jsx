@@ -15,6 +15,7 @@ import {
   Shapes,
   Store,
   Users,
+  MessageSquareText,
 } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -38,6 +39,7 @@ const links = [
   { to: "/admin/coupons", label: "Mã giảm giá", icon: Percent },
   { to: "/admin/users", label: "Khách hàng", icon: Users },
   { to: "/admin/knowledge", label: "Kho tri thức AI", icon: BookOpenText },
+  { to: "/admin/reviews", label: "Đánh giá", icon: MessageSquareText },
 ];
 
 export default function AdminLayout() {

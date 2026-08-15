@@ -37,6 +37,15 @@ public class Review {
     @Column(columnDefinition = "TEXT")
     private String comment;
 
+    @Column(name = "admin_reply", columnDefinition = "TEXT")
+    private String adminReply;
+
+    @Column(name = "replied_by_name", length = 255)
+    private String repliedByName;
+
+    @Column(name = "replied_at")
+    private LocalDateTime repliedAt;
+
     @Column(name = "verified_purchase", nullable = false)
     private boolean verifiedPurchase;
 

@@ -31,6 +31,7 @@ public class ProductCatalogService implements com.dtvi.Pet.Ecommerce.service.int
                     "createdAt",
                     "name",
                     "price",
+                    "quantity",
                     "soldCount",
                     "averageRating"
             );
@@ -60,13 +61,15 @@ public class ProductCatalogService implements com.dtvi.Pet.Ecommerce.service.int
                 size,
                 sortBy,
                 direction,
-                false
+                false,
+                null
         );
     }
 
     @Override
     public Page<ProductDto> searchAdmin(
             String query,
+            Boolean lowStock,
             int page,
             int size,
             String sortBy,
@@ -82,7 +85,8 @@ public class ProductCatalogService implements com.dtvi.Pet.Ecommerce.service.int
                 size,
                 sortBy,
                 direction,
-                true
+                true,
+                lowStock
         );
     }
 
@@ -104,7 +108,8 @@ public class ProductCatalogService implements com.dtvi.Pet.Ecommerce.service.int
             int size,
             String sortBy,
             String direction,
-            boolean includeInactive
+            boolean includeInactive,
+            Boolean lowStock
     ) {
         if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
             throw com.dtvi.Pet.Ecommerce.exception.BusinessException.badRequest(
@@ -126,6 +131,10 @@ public class ProductCatalogService implements com.dtvi.Pet.Ecommerce.service.int
             List<Predicate> predicates = new ArrayList<>();
             if (!includeInactive) {
                 predicates.add(builder.isTrue(root.get("active")));
+            }
+            if (Boolean.TRUE.equals(lowStock)) {
+                predicates.add(builder.isTrue(root.get("active")));
+                predicates.add(builder.lessThan(root.get("quantity"), 10));
             }
 
             if (query != null && !query.isBlank()) {

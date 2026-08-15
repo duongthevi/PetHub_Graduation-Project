@@ -2,6 +2,7 @@ package com.dtvi.Pet.Ecommerce.service.impl;
 
 import com.dtvi.Pet.Ecommerce.dto.commerce.ReviewRequest;
 import com.dtvi.Pet.Ecommerce.dto.commerce.ReviewResponse;
+import com.dtvi.Pet.Ecommerce.dto.commerce.ReviewStatisticsResponse;
 import com.dtvi.Pet.Ecommerce.entity.Product;
 import com.dtvi.Pet.Ecommerce.entity.Review;
 import com.dtvi.Pet.Ecommerce.entity.User;
@@ -20,6 +21,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.RoundingMode;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +44,42 @@ public class ReviewService {
                                 Sort.by(Sort.Direction.DESC, "createdAt"))
                 )
                 .map(ReviewResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ReviewResponse> getAllForAdmin(int page, int size) {
+        return reviewRepo.findByStatus(
+                        ReviewStatus.PUBLISHED,
+                        PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100)),
+                                Sort.by(Sort.Direction.DESC, "createdAt"))
+                )
+                .map(ReviewResponse::from);
+    }
+
+    @Transactional(readOnly = true)
+    public ReviewStatisticsResponse getStatistics() {
+        long total = reviewRepo.countByStatus(ReviewStatus.PUBLISHED);
+        long pending = reviewRepo.countByStatusAndAdminReplyIsNull(ReviewStatus.PUBLISHED);
+        Map<Integer, Long> distribution = new LinkedHashMap<>();
+        for (int rating = 5; rating >= 1; rating--) {
+            distribution.put(rating, reviewRepo.countByStatusAndRating(ReviewStatus.PUBLISHED, rating));
+        }
+        BigDecimal average = total == 0
+                ? BigDecimal.ZERO
+                : distribution.entrySet().stream()
+                        .map(entry -> BigDecimal.valueOf((long) entry.getKey() * entry.getValue()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add)
+                        .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+        return new ReviewStatisticsResponse(total, average, pending, total - pending, distribution);
+    }
+
+    public ReviewResponse reply(User admin, Long reviewId, String reply) {
+        Review review = reviewRepo.findById(reviewId)
+                .orElseThrow(() -> new NotFoundException("Review not found"));
+        review.setAdminReply(reply.trim());
+        review.setRepliedByName(admin.getName());
+        review.setRepliedAt(LocalDateTime.now());
+        return ReviewResponse.from(reviewRepo.save(review));
     }
 
     public ReviewResponse create(User user, Long productId, ReviewRequest request) {

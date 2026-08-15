@@ -15,10 +15,18 @@ public interface ReviewRepo extends JpaRepository<Review, Long> {
 
     Page<Review> findByProductIdAndStatus(Long productId, ReviewStatus status, Pageable pageable);
 
+    Page<Review> findByStatus(ReviewStatus status, Pageable pageable);
+
     Optional<Review> findByUserIdAndProductId(Long userId, Long productId);
 
     @Query("select coalesce(avg(r.rating), 0) from Review r where r.product.id = :productId and r.status = :status")
     BigDecimal averageRating(@Param("productId") Long productId, @Param("status") ReviewStatus status);
 
     long countByProductIdAndStatus(Long productId, ReviewStatus status);
+
+    long countByStatus(ReviewStatus status);
+
+    long countByStatusAndRating(ReviewStatus status, int rating);
+
+    long countByStatusAndAdminReplyIsNull(ReviewStatus status);
 }

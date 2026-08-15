@@ -9,9 +9,13 @@ public record ReviewResponse(
         Long userId,
         String userName,
         Long productId,
+        String productName,
         int rating,
         String comment,
         boolean verifiedPurchase,
+        String adminReply,
+        String repliedByName,
+        LocalDateTime repliedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
@@ -21,9 +25,13 @@ public record ReviewResponse(
                 review.getUser().getId(),
                 review.getUser().getName(),
                 review.getProduct().getId(),
+                review.getProduct().getName(),
                 review.getRating(),
                 review.getComment(),
                 review.isVerifiedPurchase(),
+                review.getAdminReply(),
+                review.getRepliedByName(),
+                review.getRepliedAt(),
                 review.getCreatedAt(),
                 review.getUpdatedAt()
         );
