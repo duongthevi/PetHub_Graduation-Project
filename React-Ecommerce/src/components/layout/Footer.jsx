@@ -35,14 +35,14 @@ export default function Footer() {
         </div>
         <div>
           <h3>Liên hệ</h3>
-          <span><MapPin size={17} /> TP. Hồ Chí Minh, Việt Nam</span>
-          <a href="tel:19001234"><Phone size={17} /> 1900 1234</a>
-          <a href="mailto:hello@pethub.vn"><Mail size={17} /> hello@pethub.vn</a>
+          <span><MapPin size={17} /> TP. Cần Thơ, Việt Nam</span>
+          <a href="tel:0967 101 853"><Phone size={17} /> 0967 101 853</a>
+          <a href="mailto:pethub.support@gmail.com"><Mail size={17} /> pethub.support@gmail.com</a>
         </div>
       </div>
       <div className="footer-bottom">
         <div className="container">
-          <span>© {new Date().getFullYear()} PetHub. Đồ án thương mại điện tử.</span>
+          <span>© {new Date().getFullYear()} PetHub</span>
           <span>Thanh toán an toàn với COD & VNPay</span>
         </div>
       </div>
