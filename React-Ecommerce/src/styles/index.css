@@ -265,7 +265,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-card__badge { position: absolute; left: 12px; bottom: 12px; padding: 5px 9px; border-radius: 7px; background: var(--danger); color: white; font-size: .65rem; font-weight: 800; }
 .product-card__body { padding: 17px; }
 .product-card__category { display: block; margin-bottom: 7px; color: var(--green-700); font-size: .66rem; font-weight: 800; text-transform: uppercase; }
-.product-card__name { min-height: 43px; display: -webkit-box; overflow: hidden; color: var(--ink); font-size: .9rem; font-weight: 800; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.product-card__name { min-height: 43px; display: -webkit-box; overflow: hidden; color: var(--ink); font-size: .9rem; font-weight: 800; line-height: 1.5; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
 .rating-line { display: flex; align-items: center; gap: 4px; color: #e5a53a; font-size: .7rem; }
 .rating-line span { color: var(--muted); }
 .product-card .rating-line { margin-top: 9px; }
