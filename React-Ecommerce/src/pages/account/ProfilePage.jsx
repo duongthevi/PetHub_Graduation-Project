@@ -29,18 +29,30 @@ export default function ProfilePage() {
 
   const run = async (name, request, success) => {
     setSaving(name);
-    try { await request(); toast.success(success); }
-    catch (error) { toast.error(getErrorMessage(error)); }
+    try {
+      await request();
+      toast.success(success);
+      if (name === "password") {
+        setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
+        try {
+          await logout();
+        } catch {
+          // logout() still clears the local session in its finally block.
+        }
+        navigate("/login", { replace: true });
+      }
+      return true;
+    }
+    catch (error) { toast.error(getErrorMessage(error)); return false; }
     finally { setSaving(""); }
   };
 
   const updateProfile = (event) => { event.preventDefault(); run("profile", () => profileApi.update(basic), "Đã cập nhật thông tin"); };
   const updateAddress = (event) => { event.preventDefault(); run("address", () => profileApi.saveAddress(address), "Đã lưu địa chỉ nhận hàng"); };
-  const changePassword = (event) => {
+  const changePassword = async (event) => {
     event.preventDefault();
     if (password.newPassword !== password.confirmPassword) return toast.error("Mật khẩu xác nhận chưa trùng khớp");
-    run("password", () => profileApi.changePassword({ currentPassword: password.currentPassword, newPassword: password.newPassword }), "Đổi mật khẩu thành công");
-    setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    await run("password", () => profileApi.changePassword({ currentPassword: password.currentPassword, newPassword: password.newPassword }), "Đổi mật khẩu thành công. Vui lòng đăng nhập lại");
   };
   const logoutAll = async () => { if (window.confirm("Đăng xuất tài khoản này trên tất cả thiết bị?")) { await logout(true); navigate("/login"); } };
 

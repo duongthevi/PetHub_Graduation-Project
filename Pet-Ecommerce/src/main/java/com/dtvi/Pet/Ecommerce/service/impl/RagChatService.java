@@ -26,6 +26,7 @@ import com.dtvi.Pet.Ecommerce.dto.commerce.ProductSummary;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -61,6 +62,42 @@ public class RagChatService {
                         + "\\b(?:vao\\s+)?gio(?:\\s+hang)?\\b"
         );    
 
+    private static final int PRODUCT_RESULT_LIMIT = 3;
+    private static final int PRODUCT_CANDIDATE_LIMIT = 100;
+    private static final String MONEY_REGEX =
+            "(\\d[\\d.,]*)(?:\\s*(k|nghin|ngan|trieu|m|dong|vnd|d))?";
+
+    private static final Pattern PRICE_RANGE_PATTERN = Pattern.compile(
+            "\\b(?:tu|khoang|tam)?\\s*"
+                    + MONEY_REGEX
+                    + "\\s*(?:-|den|toi)\\s*"
+                    + MONEY_REGEX
+    );
+
+    private static final Pattern PRICE_MAX_PREFIX_PATTERN = Pattern.compile(
+            "(?:<=|<|\\bduoi\\b|\\bnho\\s+hon\\b|\\bit\\s+hon\\b|"
+                    + "\\bkhong\\s+qua\\b|\\btoi\\s+da\\b|\\bre\\s+hon\\b)"
+                    + "\\s*"
+                    + MONEY_REGEX
+    );
+
+    private static final Pattern PRICE_MAX_SUFFIX_PATTERN = Pattern.compile(
+            MONEY_REGEX
+                    + "\\s*(?:tro\\s+xuong|do\\s+xuong)"
+    );
+
+    private static final Pattern PRICE_MIN_PREFIX_PATTERN = Pattern.compile(
+            "(?:>=|>|\\btren\\b|\\blon\\s+hon\\b|\\bcao\\s+hon\\b|"
+                    + "\\btu\\b|\\btoi\\s+thieu\\b)"
+                    + "\\s*"
+                    + MONEY_REGEX
+    );
+
+    private static final Pattern PRICE_MIN_SUFFIX_PATTERN = Pattern.compile(
+            MONEY_REGEX
+                    + "\\s*(?:tro\\s+len|do\\s+len)"
+    );
+
     private final OpenAiCompatibleClient aiClient;
     private final OpenAiProperties properties;
     private final KnowledgeChunkRepo chunkRepo;
@@ -78,12 +115,104 @@ public class RagChatService {
         CHECKOUT_CART
     }
 
+    private enum ProductFacet {
+        FOOD(
+                Set.of(
+                        "thuc an",
+                        "do an",
+                        "pate",
+                        "hat",
+                        "snack",
+                        "treat",
+                        "banh thuong",
+                        "sup thuong",
+                        "soup thuong",
+                        "gel dinh duong",
+                        "sua bot"
+                )
+        ),
+        TOY(
+                Set.of(
+                        "do choi",
+                        "bong",
+                        "can cau",
+                        "chuot gia",
+                        "xuc xac",
+                        "dia bay"
+                )
+        ),
+        LITTER(
+                Set.of(
+                        "cat ve sinh",
+                        "khay ve sinh",
+                        "nha ve sinh"
+                )
+        ),
+        HYGIENE(
+                Set.of(
+                        "sua tam",
+                        "dau goi",
+                        "khu mui",
+                        "nuoc hoa",
+                        "ve sinh rang",
+                        "tam kho"
+                )
+        ),
+        ACCESSORY(
+                Set.of(
+                        "phu kien",
+                        "vong co",
+                        "day dat",
+                        "day deo",
+                        "chuong",
+                        "bat an",
+                        "khay an",
+                        "balo",
+                        "tui van chuyen",
+                        "nem",
+                        "nha",
+                        "luoc",
+                        "keo cat mong"
+                )
+        ),
+        CLOTHING(
+                Set.of(
+                        "quan ao",
+                        "ao",
+                        "vay",
+                        "giay",
+                        "non"
+                )
+        );
+
+        private final Set<String> phrases;
+
+        ProductFacet(Set<String> phrases) {
+            this.phrases = phrases;
+        }
+
+        boolean matches(String normalizedText) {
+            return phrases.stream()
+                    .anyMatch(phrase ->
+                            containsPhrase(
+                                    normalizedText,
+                                    phrase
+                            )
+                    );
+        }
+    }
+
     private static final Set<String> PRODUCT_STOP_WORDS = Set.of(
             "toi", "cho", "cac", "mot", "nhung", "loai",
             "san", "pham", "muon", "can", "hay", "giup",
             "lien", "quan", "den", "tim", "goi", "mua",
             "dat", "hang", "ngay", "them", "vao", "gio",
-            "meo", "cat", "dog", "canine"
+            "meo", "cat", "dog", "canine", "cun", "gia",
+            "duoi", "tren", "nho", "lon", "cao", "thap",
+            "hon", "tu", "da", "thieu", "khong",
+            "qua", "re", "khoang", "tam", "muc", "tro",
+            "xuong", "len", "nghin", "ngan", "trieu",
+            "dong", "vnd", "d", "k", "duoc"
     );
 
     @Transactional
@@ -172,6 +301,16 @@ public class RagChatService {
                         + "Bạn hãy xác nhận bằng nút bên dưới nhé.";
         }
 
+        if (intent == ChatIntent.PRODUCT_SEARCH) {
+                if (products.isEmpty()) {
+                        return "Mình chưa tìm thấy sản phẩm phù hợp với điều kiện bạn đưa ra. "
+                                + "Bạn có thể thử nới khoảng giá hoặc mô tả cụ thể hơn nhé.";
+                }
+
+                return "Mình tìm thấy một vài sản phẩm phù hợp với yêu cầu của bạn. "
+                        + "Bạn xem các lựa chọn bên dưới nhé.";
+        }
+
         if (intent != ChatIntent.ADD_TO_CART
                 && intent != ChatIntent.BUY_NOW) {
                 return null;
@@ -244,80 +383,95 @@ public class RagChatService {
     }
 
     private List<Product> rankProducts(String question) {
-        boolean catRequested = containsToken(
-                question,
-                "mèo",
-                "meo",
-                "cat",
-                "feline"
-        );
+        ProductSearchQuery query =
+                parseProductSearchQuery(question);
 
-        boolean dogRequested = containsToken(
-                question,
-                "chó",
-                "dog",
-                "canine"
+        return filterAndRankProductCandidates(
+                query,
+                findProductCandidates(query)
         );
+    }
 
-        Set<String> terms = Arrays.stream(
-                        normalizeText(question)
-                                .split("[^\\p{L}\\p{N}]+")
+    List<Product> filterAndRankProductCandidates(
+            String question,
+            List<Product> candidates
+    ) {
+        return filterAndRankProductCandidates(
+                parseProductSearchQuery(question),
+                candidates
+        );
+    }
+
+    private List<Product> filterAndRankProductCandidates(
+            ProductSearchQuery query,
+            List<Product> candidates
+    ) {
+        return candidates
+                .stream()
+                .filter(Product::isActive)
+                .filter(product -> product.getQuantity() > 0)
+                .filter(product -> withinRequestedPrice(product, query))
+                .filter(product ->
+                        supportsRequestedPet(
+                                product,
+                                query.catRequested(),
+                                query.dogRequested()
+                        )
                 )
-                .filter(term -> term.length() >= 3)
-                .filter(term -> !PRODUCT_STOP_WORDS.contains(term))
-                .collect(Collectors.toCollection(HashSet::new));
-
-        List<ProductMatch> matches =
-                findProductCandidates(terms)
-                        .stream()
-                        .filter(Product::isActive)
-                        .filter(product -> product.getQuantity() > 0)
-                        .filter(product ->
-                                supportsRequestedPet(
-                                        product,
-                                        catRequested,
-                                        dogRequested
-                                )
+                .filter(product ->
+                        matchesRequestedFacets(
+                                product,
+                                query.facets()
                         )
-                        .map(product ->
-                                new ProductMatch(
-                                        product,
-                                        productScore(product, terms)
-                                )
+                )
+                .map(product ->
+                        new ProductMatch(
+                                product,
+                                productScore(product, query.terms())
                         )
-                        .sorted(
-                                Comparator
-                                        .comparingInt(ProductMatch::score)
-                                        .reversed()
-                                        .thenComparing(
-                                                Comparator.comparingLong(
-                                                        (ProductMatch match) ->
-                                                                match.product()
-                                                                        .getSoldCount()
-                                                ).reversed()
-                                        )
-                        )
-                        .toList();
-
-        boolean hasSpecificKeyword = !terms.isEmpty();
-
-        return matches.stream()
+                )
                 .filter(match ->
-                        !hasSpecificKeyword || match.score() > 0
+                        query.terms().isEmpty()
+                                || match.score() > 0
+                                || matchesRequestedFacets(
+                                        match.product(),
+                                        query.facets()
+                                )
                 )
-                .limit(3)
+                .sorted(
+                        Comparator
+                                .comparingInt(ProductMatch::score)
+                                .reversed()
+                                .thenComparing(
+                                        Comparator.comparingLong(
+                                                (ProductMatch match) ->
+                                                        match.product()
+                                                                .getSoldCount()
+                                        ).reversed()
+                                )
+                )
+                .limit(PRODUCT_RESULT_LIMIT)
                 .map(ProductMatch::product)
                 .toList();
     }
 
     private List<Product> findProductCandidates(
-            Set<String> terms
+            ProductSearchQuery query
     ) {
-        if (terms.isEmpty()) {
-            return productRepo
-                    .findTop20ByActiveTrueOrderBySoldCountDesc();
+        List<Product> candidates = findProductCandidatesForQuery(query);
+
+        if (candidates.isEmpty()
+                && !query.terms().isEmpty()
+                && query.hasNonTextFilter()) {
+            return findProductCandidatesForQuery(query.withoutTerms());
         }
 
+        return candidates;
+    }
+
+    private List<Product> findProductCandidatesForQuery(
+            ProductSearchQuery query
+    ) {
         Specification<Product> specification =
                 (root, criteriaQuery, builder) -> {
                     criteriaQuery.distinct(true);
@@ -333,49 +487,69 @@ public class RagChatService {
                             )
                     );
 
-                    var category = root.join(
-                            "category",
-                            JoinType.LEFT
-                    );
-
-                    List<Predicate> termPredicates =
-                            new ArrayList<>();
-
-                    for (String term : terms) {
-                        String pattern =
-                                "%" + term.toLowerCase(Locale.ROOT) + "%";
-
-                        termPredicates.add(builder.or(
-                                builder.like(
-                                        builder.lower(root.get("name")),
-                                        pattern
-                                ),
-                                builder.like(
-                                        builder.lower(root.get("sku")),
-                                        pattern
-                                ),
-                                builder.like(
-                                        builder.lower(root.get("brand")),
-                                        pattern
-                                ),
-                                builder.like(
-                                        builder.lower(root.get("description")),
-                                        pattern
-                                ),
-                                builder.like(
-                                        builder.lower(category.get("name")),
-                                        pattern
+                    if (query.minPrice() != null) {
+                        required.add(
+                                builder.greaterThanOrEqualTo(
+                                        root.get("price"),
+                                        query.minPrice()
                                 )
-                        ));
+                        );
                     }
 
-                    required.add(
-                            builder.or(
-                                    termPredicates.toArray(
-                                            Predicate[]::new
+                    if (query.maxPrice() != null) {
+                        required.add(
+                                builder.lessThanOrEqualTo(
+                                        root.get("price"),
+                                        query.maxPrice()
+                                )
+                        );
+                    }
+
+                    if (!query.terms().isEmpty()) {
+                        var category = root.join(
+                                "category",
+                                JoinType.LEFT
+                        );
+
+                        List<Predicate> termPredicates =
+                                new ArrayList<>();
+
+                        for (String term : query.terms()) {
+                            String pattern =
+                                    "%" + term.toLowerCase(Locale.ROOT) + "%";
+
+                            termPredicates.add(builder.or(
+                                    builder.like(
+                                            builder.lower(root.get("name")),
+                                            pattern
+                                    ),
+                                    builder.like(
+                                            builder.lower(root.get("sku")),
+                                            pattern
+                                    ),
+                                    builder.like(
+                                            builder.lower(root.get("brand")),
+                                            pattern
+                                    ),
+                                    builder.like(
+                                            builder.lower(root.get("description")),
+                                            pattern
+                                    ),
+                                    builder.like(
+                                            builder.lower(category.get("name")),
+                                            pattern
                                     )
-                            )
-                    );
+                            ));
+                        }
+
+                        required.add(
+                                builder.or(
+                                        termPredicates.toArray(
+                                                Predicate[]::new
+                                        )
+                                )
+                        );
+                    }
 
                     return builder.and(
                             required.toArray(Predicate[]::new)
@@ -386,13 +560,232 @@ public class RagChatService {
                 specification,
                 PageRequest.of(
                         0,
-                        100,
+                        PRODUCT_CANDIDATE_LIMIT,
                         Sort.by(
                                 Sort.Direction.DESC,
                                 "soldCount"
                         )
                 )
         ).getContent();
+    }
+
+    private ProductSearchQuery parseProductSearchQuery(
+            String question
+    ) {
+        String normalized = normalizeText(question);
+        PriceFilter priceFilter = parsePriceFilter(normalized);
+
+        boolean catRequested =
+                containsNormalizedToken(
+                        normalized,
+                        "meo",
+                        "cat",
+                        "feline"
+                );
+
+        boolean dogRequested =
+                containsToken(question, "chó")
+                        || containsNormalizedToken(
+                                normalized,
+                                "dog",
+                                "canine",
+                                "cun"
+                        )
+                        || containsPhrase(normalized, "cho cho")
+                        || containsPhrase(normalized, "danh cho cho")
+                        || containsPhrase(normalized, "cua cho");
+
+        Set<ProductFacet> facets = Arrays.stream(ProductFacet.values())
+                .filter(facet -> facet.matches(normalized))
+                .collect(Collectors.toCollection(
+                        () -> EnumSet.noneOf(ProductFacet.class)
+                ));
+
+        Set<String> terms = Arrays.stream(
+                        normalized.split("[^\\p{L}\\p{N}]+")
+                )
+                .filter(term -> term.length() >= 3)
+                .filter(term -> !PRODUCT_STOP_WORDS.contains(term))
+                .filter(term ->
+                        !priceFilter.hasFilter()
+                                || !term.chars()
+                                        .allMatch(Character::isDigit)
+                )
+                .collect(Collectors.toCollection(HashSet::new));
+
+        return new ProductSearchQuery(
+                terms,
+                catRequested,
+                dogRequested,
+                priceFilter.minPrice(),
+                priceFilter.maxPrice(),
+                facets
+        );
+    }
+
+    private PriceFilter parsePriceFilter(String normalizedQuestion) {
+        Matcher rangeMatcher =
+                PRICE_RANGE_PATTERN.matcher(normalizedQuestion);
+
+        if (rangeMatcher.find()) {
+            String firstUnit = rangeMatcher.group(2);
+            String secondUnit = rangeMatcher.group(4);
+
+            if ((firstUnit == null || firstUnit.isBlank())
+                    && secondUnit != null
+                    && !secondUnit.isBlank()) {
+                firstUnit = secondUnit;
+            }
+
+            if ((secondUnit == null || secondUnit.isBlank())
+                    && firstUnit != null
+                    && !firstUnit.isBlank()) {
+                secondUnit = firstUnit;
+            }
+
+            BigDecimal first =
+                    parseMoney(rangeMatcher.group(1), firstUnit);
+            BigDecimal second =
+                    parseMoney(rangeMatcher.group(3), secondUnit);
+
+            if (first != null && second != null) {
+                return new PriceFilter(
+                        first.min(second),
+                        first.max(second)
+                );
+            }
+        }
+
+        BigDecimal maxPrice = firstPrice(
+                PRICE_MAX_PREFIX_PATTERN,
+                normalizedQuestion,
+                1,
+                2
+        );
+
+        if (maxPrice == null) {
+            maxPrice = firstPrice(
+                    PRICE_MAX_SUFFIX_PATTERN,
+                    normalizedQuestion,
+                    1,
+                    2
+            );
+        }
+
+        BigDecimal minPrice = firstPrice(
+                PRICE_MIN_PREFIX_PATTERN,
+                normalizedQuestion,
+                1,
+                2
+        );
+
+        if (minPrice == null) {
+            minPrice = firstPrice(
+                    PRICE_MIN_SUFFIX_PATTERN,
+                    normalizedQuestion,
+                    1,
+                    2
+            );
+        }
+
+        return new PriceFilter(minPrice, maxPrice);
+    }
+
+    private BigDecimal firstPrice(
+            Pattern pattern,
+            String text,
+            int amountGroup,
+            int unitGroup
+    ) {
+        Matcher matcher = pattern.matcher(text);
+
+        if (!matcher.find()) {
+            return null;
+        }
+
+        return parseMoney(
+                matcher.group(amountGroup),
+                matcher.group(unitGroup)
+        );
+    }
+
+    private BigDecimal parseMoney(
+            String amount,
+            String unit
+    ) {
+        if (amount == null || amount.isBlank()) {
+            return null;
+        }
+
+        String normalizedAmount = amount.trim();
+        boolean groupedThousands =
+                normalizedAmount.matches("\\d{1,3}([.,]\\d{3})+");
+
+        if (groupedThousands) {
+            normalizedAmount = normalizedAmount.replaceAll("[.,]", "");
+        } else {
+            normalizedAmount = normalizedAmount.replace(',', '.');
+        }
+
+        try {
+            BigDecimal value = new BigDecimal(normalizedAmount);
+            String normalizedUnit = safe(unit)
+                    .trim()
+                    .toLowerCase(Locale.ROOT);
+
+            if (Set.of("k", "nghin", "ngan").contains(normalizedUnit)) {
+                value = value.multiply(new BigDecimal("1000"));
+            } else if (Set.of("trieu", "m").contains(normalizedUnit)) {
+                value = value.multiply(new BigDecimal("1000000"));
+            }
+
+            return value.setScale(0, java.math.RoundingMode.HALF_UP);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private boolean withinRequestedPrice(
+            Product product,
+            ProductSearchQuery query
+    ) {
+        BigDecimal price = product.getPrice();
+
+        if (price == null) {
+            return false;
+        }
+
+        if (query.minPrice() != null
+                && price.compareTo(query.minPrice()) < 0) {
+            return false;
+        }
+
+        return query.maxPrice() == null
+                || price.compareTo(query.maxPrice()) <= 0;
+    }
+
+    private boolean matchesRequestedFacets(
+            Product product,
+            Set<ProductFacet> requestedFacets
+    ) {
+        if (requestedFacets.isEmpty()) {
+            return true;
+        }
+
+        String searchable = normalizeText(
+                String.join(
+                        " ",
+                        safe(product.getName()),
+                        safe(product.getDescription()),
+                        safe(product.getBrand()),
+                        product.getCategory() == null
+                                ? ""
+                                : safe(product.getCategory().getName())
+                )
+        );
+
+        return requestedFacets.stream()
+                .allMatch(facet -> facet.matches(searchable));
     }
 
     private int productScore(
@@ -461,22 +854,36 @@ public class RagChatService {
                 .trim()
                 .toUpperCase(Locale.ROOT);
 
-        String searchable = String.join(
+        String rawSearchable = String.join(
                 " ",
                 safe(product.getName()),
                 safe(product.getDescription()),
                 safe(product.getPetType())
         ).toLowerCase(Locale.ROOT);
+        String searchable = normalizeText(rawSearchable);
 
         if (catRequested) {
             return Set.of("CAT", "ALL", "BOTH").contains(petType)
-                    || searchable.contains("mèo")
-                    || searchable.contains("cat");
+                    || rawSearchable.contains("mèo")
+                    || containsNormalizedToken(
+                            searchable,
+                            "meo",
+                            "cat",
+                            "feline"
+                    );
         }
 
         return Set.of("DOG", "ALL", "BOTH").contains(petType)
-                || searchable.contains("chó")
-                || searchable.contains("dog");
+                || rawSearchable.contains("chó")
+                || containsNormalizedToken(
+                        searchable,
+                        "dog",
+                        "canine",
+                        "cun"
+                )
+                || containsPhrase(searchable, "cho cho")
+                || containsPhrase(searchable, "danh cho cho")
+                || containsPhrase(searchable, "cua cho");
     }
 
     private String buildContext(
@@ -693,6 +1100,39 @@ public class RagChatService {
         return Arrays.stream(keywords).anyMatch(text::contains);
     }
 
+    private static boolean containsPhrase(
+            String normalizedText,
+            String normalizedPhrase
+    ) {
+        String preparedText = " "
+                + safeStatic(normalizedText)
+                        .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                        .trim()
+                + " ";
+        String preparedPhrase = " "
+                + safeStatic(normalizedPhrase)
+                        .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                        .trim()
+                + " ";
+
+        return preparedText.contains(preparedPhrase);
+    }
+
+    private boolean containsNormalizedToken(
+            String normalizedText,
+            String... keywords
+    ) {
+        String prepared = " "
+                + safe(normalizedText)
+                        .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                + " ";
+
+        return Arrays.stream(keywords)
+                .anyMatch(keyword ->
+                        prepared.contains(" " + keyword + " ")
+                );
+    }
+
     private boolean containsToken(String text, String... keywords) {
         String prepared = " "
                 + text.toLowerCase(Locale.ROOT)
@@ -705,10 +1145,51 @@ public class RagChatService {
                 );
     }
 
+    private static String safeStatic(String value) {
+        return value == null ? "" : value;
+    }
+
     private record ProductMatch(
             Product product,
             int score
     ) {
+    }
+
+    private record ProductSearchQuery(
+            Set<String> terms,
+            boolean catRequested,
+            boolean dogRequested,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            Set<ProductFacet> facets
+    ) {
+        boolean hasNonTextFilter() {
+            return catRequested
+                    || dogRequested
+                    || minPrice != null
+                    || maxPrice != null
+                    || !facets.isEmpty();
+        }
+
+        ProductSearchQuery withoutTerms() {
+            return new ProductSearchQuery(
+                    Set.of(),
+                    catRequested,
+                    dogRequested,
+                    minPrice,
+                    maxPrice,
+                    facets
+            );
+        }
+    }
+
+    private record PriceFilter(
+            BigDecimal minPrice,
+            BigDecimal maxPrice
+    ) {
+        boolean hasFilter() {
+            return minPrice != null || maxPrice != null;
+        }
     }
 
     private ChatAction buildAction(
